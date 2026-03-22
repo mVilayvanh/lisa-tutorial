@@ -184,7 +184,13 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
             return BOTTOM;
 
         if (operator == NumericNegation.INSTANCE) {
-            return new IntervalsWithOverflow(wrapNeg(arg.high), wrapNeg(arg.low));
+            long newLow = -(long) arg.high;
+            long newHigh = -(long) arg.low;
+
+            if (!fitsInt(newLow) || !fitsInt(newHigh))
+                return TOP;
+
+            return new IntervalsWithOverflow((int) newLow, (int) newHigh);
         }
 
         return TOP;
@@ -205,15 +211,21 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
             return TOP;
 
         if (operator instanceof AdditionOperator) {
-            return new IntervalsWithOverflow(
-                    wrapAdd(left.low, right.low),
-                    wrapAdd(left.high, right.high)
-            );
+            long newLow = (long) left.low + right.low;
+            long newHigh = (long) left.high + right.high;
+
+            if (!fitsInt(newLow) || !fitsInt(newHigh))
+                return TOP;
+
+            return new IntervalsWithOverflow((int) newLow, (int) newHigh);
         } else if (operator instanceof SubtractionOperator) {
-            return new IntervalsWithOverflow(
-                    wrapSub(left.low, right.high),
-                    wrapSub(left.high, right.low)
-            );
+            long newLow = (long) left.low - right.high;
+            long newHigh = (long) left.high - right.low;
+
+            if (!fitsInt(newLow) || !fitsInt(newHigh))
+                return TOP;
+
+            return new IntervalsWithOverflow((int) newLow, (int) newHigh);
         } else if (operator instanceof MultiplicationOperator) {
             long p1 = (long) left.low * right.low;
             long p2 = (long) left.low * right.high;
@@ -222,6 +234,9 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
 
             long min = Math.min(Math.min(p1, p2), Math.min(p3, p4));
             long max = Math.max(Math.max(p1, p2), Math.max(p3, p4));
+
+            if (!fitsInt(min) || !fitsInt(max))
+                return TOP;
 
             return new IntervalsWithOverflow((int) min, (int) max);
         } else if (operator instanceof DivisionOperator) {
@@ -236,21 +251,16 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
             long min = Math.min(Math.min(d1, d2), Math.min(d3, d4));
             long max = Math.max(Math.max(d1, d2), Math.max(d3, d4));
 
+            if (!fitsInt(min) || !fitsInt(max))
+                return TOP;
+
             return new IntervalsWithOverflow((int) min, (int) max);
         }
 
         return TOP;
     }
 
-    private static int wrapAdd(int a, int b) {
-        return (int) ((long) a + b);
-    }
-
-    private static int wrapSub(int a, int b) {
-        return (int) ((long) a - b);
-    }
-
-    private static int wrapNeg(int a) {
-        return (int) (-(long) a);
+    private static boolean fitsInt(long value) {
+        return value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE;
     }
 }
