@@ -77,6 +77,16 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     @Override
+    public boolean isTop() {
+        return !isBottom && low == Integer.MIN_VALUE && high == Integer.MAX_VALUE;
+    }
+
+    @Override
+    public boolean isBottom() {
+        return isBottom;
+    }
+
+    @Override
     public StructuredRepresentation representation() {
         if (isBottom)
             return Lattice.bottomRepresentation();
@@ -117,7 +127,8 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
         return new IntervalsWithOverflow(newLow, newHigh);
     }
 
-    public IntervalsWithOverflow glbAux(IntervalsWithOverflow other) {
+    @Override
+    public IntervalsWithOverflow glbAux(IntervalsWithOverflow other) throws SemanticException {
         if (this.isBottom || other.isBottom)
             return BOTTOM;
 
@@ -128,10 +139,12 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
                 return BOTTOM;
             return new IntervalsWithOverflow(newLow, newHigh);
         }
+
         return BOTTOM;
     }
 
-    public IntervalsWithOverflow wideningAux(IntervalsWithOverflow other) {
+    @Override
+    public IntervalsWithOverflow wideningAux(IntervalsWithOverflow other) throws SemanticException {
         if (this.isBottom)
             return other;
         if (other.isBottom)
