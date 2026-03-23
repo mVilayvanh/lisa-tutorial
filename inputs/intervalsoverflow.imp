@@ -13,10 +13,35 @@ class intervalsoverflow {
         return b;
     }
 
-    overflow() {
+    overflow_add() {
         def x = 2147483647;
         def y = x + 1;
         return y;
+    }
+
+    overflow_sub() {
+        def m = 2147483647;
+        def x = -m;
+        x = x - 1;
+        def y = x - 1;
+        return y;
+    }
+
+    overflow_neg() {
+        def m = 2147483647;
+        def x = -m;
+        x = x - 1;
+        def y = -x;
+        return y;
+    }
+
+    overflow_div() {
+        def m = 2147483647;
+        def x = -m;
+        x = x - 1;
+        def y = -1;
+        def z = x / y;
+        return z;
     }
 
     loop() {
