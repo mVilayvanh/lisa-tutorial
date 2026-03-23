@@ -24,11 +24,8 @@ public class IntervalsWithOverflowDomainTest {
         public Set<Type> typeInference(TypeSystem types, Set<Type> left, Set<Type> right) {
             return Collections.emptySet();
         }
-
         @Override
-        public String toString() {
-            return "+";
-        }
+        public String toString() { return "+"; }
     }
 
     private static final class SubOp implements BinaryOperator, SubtractionOperator {
@@ -36,11 +33,8 @@ public class IntervalsWithOverflowDomainTest {
         public Set<Type> typeInference(TypeSystem types, Set<Type> left, Set<Type> right) {
             return Collections.emptySet();
         }
-
         @Override
-        public String toString() {
-            return "-";
-        }
+        public String toString() { return "-"; }
     }
 
     private static final class MulOp implements BinaryOperator, MultiplicationOperator {
@@ -48,11 +42,8 @@ public class IntervalsWithOverflowDomainTest {
         public Set<Type> typeInference(TypeSystem types, Set<Type> left, Set<Type> right) {
             return Collections.emptySet();
         }
-
         @Override
-        public String toString() {
-            return "*";
-        }
+        public String toString() { return "*"; }
     }
 
     private static final class DivOp implements BinaryOperator, DivisionOperator {
@@ -60,11 +51,8 @@ public class IntervalsWithOverflowDomainTest {
         public Set<Type> typeInference(TypeSystem types, Set<Type> left, Set<Type> right) {
             return Collections.emptySet();
         }
-
         @Override
-        public String toString() {
-            return "/";
-        }
+        public String toString() { return "/"; }
     }
 
     private static final BinaryOperator ADD = new AddOp();
@@ -72,14 +60,16 @@ public class IntervalsWithOverflowDomainTest {
     private static final BinaryOperator MUL = new MulOp();
     private static final BinaryOperator DIV = new DivOp();
 
+    // -------------------------
+    // Lattice operations
+    // -------------------------
+
     @Test
     public void testLub() throws SemanticException {
         IntervalsWithOverflow a = new IntervalsWithOverflow(1, 1);
         IntervalsWithOverflow b = new IntervalsWithOverflow(10, 10);
 
-        IntervalsWithOverflow res = a.lub(b);
-
-        assertEquals(new IntervalsWithOverflow(1, 10), res);
+        assertEquals(new IntervalsWithOverflow(1, 10), a.lub(b));
     }
 
     @Test
@@ -91,13 +81,43 @@ public class IntervalsWithOverflowDomainTest {
     }
 
     @Test
+    public void testGlb() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(1, 5);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(3, 10);
+
+        assertEquals(new IntervalsWithOverflow(3, 5), a.glb(b));
+    }
+
+    @Test
+    public void testGlbDisjointGivesBottom() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(1, 2);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(5, 6);
+
+        assertEquals(IntervalsWithOverflow.BOTTOM, a.glb(b));
+    }
+
+    @Test
+    public void testWidening() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(1, 5);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(0, 10);
+
+        assertEquals(
+                new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MAX_VALUE),
+                a.widening(b)
+        );
+    }
+
+    // -------------------------
+    // Arithmetic - normal cases
+    // -------------------------
+
+    @Test
     public void testAdditionNoOverflow() throws SemanticException {
         IntervalsWithOverflow a = new IntervalsWithOverflow(1, 3);
         IntervalsWithOverflow b = new IntervalsWithOverflow(2, 4);
 
-        IntervalsWithOverflow res = a.evalBinaryExpression(ADD, a, b, null, null);
-
-        assertEquals(new IntervalsWithOverflow(3, 7), res);
+        assertEquals(new IntervalsWithOverflow(3, 7),
+                a.evalBinaryExpression(ADD, a, b, null, null));
     }
 
     @Test
@@ -105,37 +125,47 @@ public class IntervalsWithOverflowDomainTest {
         IntervalsWithOverflow a = new IntervalsWithOverflow(5, 8);
         IntervalsWithOverflow b = new IntervalsWithOverflow(2, 3);
 
-        IntervalsWithOverflow res = a.evalBinaryExpression(SUB, a, b, null, null);
+        assertEquals(new IntervalsWithOverflow(2, 6),
+                a.evalBinaryExpression(SUB, a, b, null, null));
+    }
 
-        assertEquals(new IntervalsWithOverflow(2, 6), res);
+    @Test
+    public void testMultiplicationNoOverflow() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(2, 4);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(3, 5);
+
+        assertEquals(new IntervalsWithOverflow(6, 20),
+                a.evalBinaryExpression(MUL, a, b, null, null));
+    }
+
+    @Test
+    public void testDivisionNoOverflow() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(8, 12);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(2, 3);
+
+        assertEquals(new IntervalsWithOverflow(2, 6),
+                a.evalBinaryExpression(DIV, a, b, null, null));
     }
 
     @Test
     public void testNegationNoOverflow() throws SemanticException {
         IntervalsWithOverflow a = new IntervalsWithOverflow(1, 3);
 
-        IntervalsWithOverflow res = a.evalUnaryExpression(NumericNegation.INSTANCE, a, null, null);
-
-        assertEquals(new IntervalsWithOverflow(-3, -1), res);
+        assertEquals(new IntervalsWithOverflow(-3, -1),
+                a.evalUnaryExpression(NumericNegation.INSTANCE, a, null, null));
     }
+
+    // -------------------------
+    // Overflow / edge cases
+    // -------------------------
 
     @Test
     public void testAdditionOverflowGivesTop() throws SemanticException {
         IntervalsWithOverflow a = new IntervalsWithOverflow(Integer.MAX_VALUE, Integer.MAX_VALUE);
         IntervalsWithOverflow b = new IntervalsWithOverflow(1, 1);
 
-        IntervalsWithOverflow res = a.evalBinaryExpression(ADD, a, b, null, null);
-
-        assertEquals(IntervalsWithOverflow.TOP, res);
-    }
-
-    @Test
-    public void testNegationOverflowGivesTop() throws SemanticException {
-        IntervalsWithOverflow a = new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MIN_VALUE);
-
-        IntervalsWithOverflow res = a.evalUnaryExpression(NumericNegation.INSTANCE, a, null, null);
-
-        assertEquals(IntervalsWithOverflow.TOP, res);
+        assertEquals(IntervalsWithOverflow.TOP,
+                a.evalBinaryExpression(ADD, a, b, null, null));
     }
 
     @Test
@@ -143,9 +173,16 @@ public class IntervalsWithOverflowDomainTest {
         IntervalsWithOverflow a = new IntervalsWithOverflow(Integer.MAX_VALUE, Integer.MAX_VALUE);
         IntervalsWithOverflow b = new IntervalsWithOverflow(2, 2);
 
-        IntervalsWithOverflow res = a.evalBinaryExpression(MUL, a, b, null, null);
+        assertEquals(IntervalsWithOverflow.TOP,
+                a.evalBinaryExpression(MUL, a, b, null, null));
+    }
 
-        assertEquals(IntervalsWithOverflow.TOP, res);
+    @Test
+    public void testNegationOverflowGivesTop() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MIN_VALUE);
+
+        assertEquals(IntervalsWithOverflow.TOP,
+                a.evalUnaryExpression(NumericNegation.INSTANCE, a, null, null));
     }
 
     @Test
@@ -153,8 +190,25 @@ public class IntervalsWithOverflowDomainTest {
         IntervalsWithOverflow a = new IntervalsWithOverflow(1, 10);
         IntervalsWithOverflow b = new IntervalsWithOverflow(-1, 1);
 
-        IntervalsWithOverflow res = a.evalBinaryExpression(DIV, a, b, null, null);
+        assertEquals(IntervalsWithOverflow.TOP,
+                a.evalBinaryExpression(DIV, a, b, null, null));
+    }
 
-        assertEquals(IntervalsWithOverflow.TOP, res);
+    // -------------------------
+    // Bottom behavior
+    // -------------------------
+
+    @Test
+    public void testBottomLessOrEqualEverything() throws SemanticException {
+        assertTrue(IntervalsWithOverflow.BOTTOM.lessOrEqual(
+                new IntervalsWithOverflow(1, 2)));
+    }
+
+    @Test
+    public void testOperationWithBottomGivesBottom() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(1, 2);
+
+        assertEquals(IntervalsWithOverflow.BOTTOM,
+                a.evalBinaryExpression(ADD, a, IntervalsWithOverflow.BOTTOM, null, null));
     }
 }
