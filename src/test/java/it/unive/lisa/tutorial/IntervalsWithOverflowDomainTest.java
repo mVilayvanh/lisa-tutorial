@@ -4,6 +4,7 @@ import java.util.Collections;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
@@ -24,8 +25,11 @@ public class IntervalsWithOverflowDomainTest {
         public Set<Type> typeInference(TypeSystem types, Set<Type> left, Set<Type> right) {
             return Collections.emptySet();
         }
+
         @Override
-        public String toString() { return "+"; }
+        public String toString() {
+            return "+";
+        }
     }
 
     private static final class SubOp implements BinaryOperator, SubtractionOperator {
@@ -33,8 +37,11 @@ public class IntervalsWithOverflowDomainTest {
         public Set<Type> typeInference(TypeSystem types, Set<Type> left, Set<Type> right) {
             return Collections.emptySet();
         }
+
         @Override
-        public String toString() { return "-"; }
+        public String toString() {
+            return "-";
+        }
     }
 
     private static final class MulOp implements BinaryOperator, MultiplicationOperator {
@@ -42,8 +49,11 @@ public class IntervalsWithOverflowDomainTest {
         public Set<Type> typeInference(TypeSystem types, Set<Type> left, Set<Type> right) {
             return Collections.emptySet();
         }
+
         @Override
-        public String toString() { return "*"; }
+        public String toString() {
+            return "*";
+        }
     }
 
     private static final class DivOp implements BinaryOperator, DivisionOperator {
@@ -51,8 +61,11 @@ public class IntervalsWithOverflowDomainTest {
         public Set<Type> typeInference(TypeSystem types, Set<Type> left, Set<Type> right) {
             return Collections.emptySet();
         }
+
         @Override
-        public String toString() { return "/"; }
+        public String toString() {
+            return "/";
+        }
     }
 
     private static final BinaryOperator ADD = new AddOp();
@@ -101,10 +114,46 @@ public class IntervalsWithOverflowDomainTest {
         IntervalsWithOverflow a = new IntervalsWithOverflow(1, 5);
         IntervalsWithOverflow b = new IntervalsWithOverflow(0, 10);
 
-        assertEquals(
-                new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MAX_VALUE),
-                a.widening(b)
-        );
+        assertEquals(IntervalsWithOverflow.TOP, a.widening(b));
+    }
+
+    // -------------------------
+    // Wrapped interval behavior
+    // -------------------------
+
+    @Test
+    public void testWrappedContains() {
+        IntervalsWithOverflow wrapped = new IntervalsWithOverflow(10, 5);
+
+        assertTrue(wrapped.isWrapped());
+        assertTrue(wrapped.contains(10));
+        assertTrue(wrapped.contains(Integer.MAX_VALUE));
+        assertTrue(wrapped.contains(Integer.MIN_VALUE));
+        assertTrue(wrapped.contains(0));
+        assertTrue(wrapped.contains(5));
+        assertFalse(wrapped.contains(7));
+    }
+
+    @Test
+    public void testWrappedLessOrEqualTop() throws SemanticException {
+        IntervalsWithOverflow wrapped = new IntervalsWithOverflow(10, 5);
+        assertTrue(wrapped.lessOrEqual(IntervalsWithOverflow.TOP));
+    }
+
+    @Test
+    public void testWrappedGlbStandard() throws SemanticException {
+        IntervalsWithOverflow wrapped = new IntervalsWithOverflow(10, 5);
+        IntervalsWithOverflow standard = new IntervalsWithOverflow(0, 3);
+
+        assertEquals(new IntervalsWithOverflow(0, 3), wrapped.glb(standard));
+    }
+
+    @Test
+    public void testWrappedLubWithContainedStandard() throws SemanticException {
+        IntervalsWithOverflow wrapped = new IntervalsWithOverflow(10, 5);
+        IntervalsWithOverflow standard = new IntervalsWithOverflow(0, 3);
+
+        assertEquals(wrapped, wrapped.lub(standard));
     }
 
     // -------------------------
@@ -156,32 +205,41 @@ public class IntervalsWithOverflowDomainTest {
     }
 
     // -------------------------
-    // Overflow / edge cases
+    // Overflow / modular cases
     // -------------------------
 
     @Test
-    public void testAdditionOverflowGivesTop() throws SemanticException {
+    public void testAdditionOverflowWraps() throws SemanticException {
         IntervalsWithOverflow a = new IntervalsWithOverflow(Integer.MAX_VALUE, Integer.MAX_VALUE);
         IntervalsWithOverflow b = new IntervalsWithOverflow(1, 1);
 
-        assertEquals(IntervalsWithOverflow.TOP,
+        assertEquals(new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MIN_VALUE),
                 a.evalBinaryExpression(ADD, a, b, null, null));
     }
 
     @Test
-    public void testMultiplicationOverflowGivesTop() throws SemanticException {
+    public void testSubtractionOverflowWraps() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MIN_VALUE);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(1, 1);
+
+        assertEquals(new IntervalsWithOverflow(Integer.MAX_VALUE, Integer.MAX_VALUE),
+                a.evalBinaryExpression(SUB, a, b, null, null));
+    }
+
+    @Test
+    public void testMultiplicationOverflowWraps() throws SemanticException {
         IntervalsWithOverflow a = new IntervalsWithOverflow(Integer.MAX_VALUE, Integer.MAX_VALUE);
         IntervalsWithOverflow b = new IntervalsWithOverflow(2, 2);
 
-        assertEquals(IntervalsWithOverflow.TOP,
+        assertEquals(new IntervalsWithOverflow(-2, -2),
                 a.evalBinaryExpression(MUL, a, b, null, null));
     }
 
     @Test
-    public void testNegationOverflowGivesTop() throws SemanticException {
+    public void testNegationOverflowWraps() throws SemanticException {
         IntervalsWithOverflow a = new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MIN_VALUE);
 
-        assertEquals(IntervalsWithOverflow.TOP,
+        assertEquals(new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MIN_VALUE),
                 a.evalUnaryExpression(NumericNegation.INSTANCE, a, null, null));
     }
 
@@ -191,6 +249,15 @@ public class IntervalsWithOverflowDomainTest {
         IntervalsWithOverflow b = new IntervalsWithOverflow(-1, 1);
 
         assertEquals(IntervalsWithOverflow.TOP,
+                a.evalBinaryExpression(DIV, a, b, null, null));
+    }
+
+    @Test
+    public void testDivisionMinByMinusOneWraps() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MIN_VALUE);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(-1, -1);
+
+        assertEquals(new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MIN_VALUE),
                 a.evalBinaryExpression(DIV, a, b, null, null));
     }
 

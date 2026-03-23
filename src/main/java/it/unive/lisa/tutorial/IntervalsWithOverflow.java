@@ -1,5 +1,9 @@
 package it.unive.lisa.tutorial;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
 import it.unive.lisa.analysis.Lattice;
 import it.unive.lisa.analysis.SemanticException;
 import it.unive.lisa.analysis.SemanticOracle;
@@ -16,50 +20,69 @@ import it.unive.lisa.symbolic.value.operator.unary.UnaryOperator;
 import it.unive.lisa.util.representation.StringRepresentation;
 import it.unive.lisa.util.representation.StructuredRepresentation;
 
-import java.util.Objects;
-
+/**
+ * Wrapped interval domain over 32-bit signed integers.
+ *
+ * <p>
+ * This domain models machine integers with modular arithmetic (Java int semantics).
+ * An element [low, high] is interpreted as:
+ * </p>
+ * <ul>
+ *   <li>a standard interval if low <= high</li>
+ *   <li>a wrapped interval crossing the modular boundary if low > high</li>
+ * </ul>
+ *
+ * <p>
+ * Example: [Integer.MAX_VALUE - 1, Integer.MIN_VALUE + 2] is a valid wrapped interval.
+ * </p>
+ *
+ * <p>
+ * This is a sound but intentionally simple implementation: when an arithmetic result
+ * cannot be represented precisely by a single wrapped interval, the domain safely
+ * over-approximates it, possibly returning TOP.
+ * </p>
+ */
 public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<IntervalsWithOverflow> {
 
     public static final IntervalsWithOverflow TOP =
-            new IntervalsWithOverflow(Integer.MIN_VALUE, Integer.MAX_VALUE, false);
+            new IntervalsWithOverflow(0, -1, false, true);
 
     public static final IntervalsWithOverflow BOTTOM =
-            new IntervalsWithOverflow(0, 0, true);
+            new IntervalsWithOverflow(0, 0, true, false);
 
     public static final IntervalsWithOverflow ZERO =
-            new IntervalsWithOverflow(0, 0, false);
+            new IntervalsWithOverflow(0, 0, false, false);
 
     private final int low;
     private final int high;
     private final boolean isBottom;
+    private final boolean isTop;
 
     public IntervalsWithOverflow() {
-        this(Integer.MIN_VALUE, Integer.MAX_VALUE, false);
+        this(0, -1, false, true);
     }
 
     public IntervalsWithOverflow(int low, int high) {
-        this(low, high, false);
+        this(low, high, false, false);
     }
 
-    private IntervalsWithOverflow(int low, int high, boolean isBottom) {
+    private IntervalsWithOverflow(int low, int high, boolean isBottom, boolean isTop) {
         this.low = low;
         this.high = high;
         this.isBottom = isBottom;
+        this.isTop = isTop;
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(low, high, isBottom);
+    public int getLow() {
+        return low;
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o)
-            return true;
-        if (!(o instanceof IntervalsWithOverflow))
-            return false;
-        IntervalsWithOverflow other = (IntervalsWithOverflow) o;
-        return low == other.low && high == other.high && isBottom == other.isBottom;
+    public int getHigh() {
+        return high;
+    }
+
+    public boolean isWrapped() {
+        return !isBottom && !isTop && low > high;
     }
 
     @Override
@@ -74,7 +97,7 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
 
     @Override
     public boolean isTop() {
-        return !isBottom && low == Integer.MIN_VALUE && high == Integer.MAX_VALUE;
+        return isTop;
     }
 
     @Override
@@ -86,21 +109,95 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     public StructuredRepresentation representation() {
         if (isBottom)
             return Lattice.bottomRepresentation();
+        if (isTop)
+            return Lattice.topRepresentation();
         return new StringRepresentation("[" + low + ", " + high + "]");
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(low, high, isBottom, isTop);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o)
+            return true;
+        if (!(o instanceof IntervalsWithOverflow))
+            return false;
+        IntervalsWithOverflow other = (IntervalsWithOverflow) o;
+        return low == other.low
+                && high == other.high
+                && isBottom == other.isBottom
+                && isTop == other.isTop;
+    }
+
+    /**
+     * Returns true if the interval contains the concrete value v.
+     */
+    public boolean contains(int v) {
+        if (isBottom)
+            return false;
+        if (isTop)
+            return true;
+        if (!isWrapped())
+            return low <= v && v <= high;
+        return v >= low || v <= high;
+    }
+
+    /**
+     * Returns the concrete segments representing this interval on the standard signed line.
+     *
+     * <p>
+     * A non-wrapped interval is returned as one segment.
+     * A wrapped interval [low, high] is returned as two segments:
+     * [low, Integer.MAX_VALUE] and [Integer.MIN_VALUE, high].
+     * </p>
+     */
+    private List<Segment> toSegments() {
+        List<Segment> result = new ArrayList<>();
+        if (isBottom)
+            return result;
+        if (isTop) {
+            result.add(new Segment(Integer.MIN_VALUE, Integer.MAX_VALUE));
+            return result;
+        }
+
+        if (!isWrapped()) {
+            result.add(new Segment(low, high));
+        } else {
+            result.add(new Segment(low, Integer.MAX_VALUE));
+            result.add(new Segment(Integer.MIN_VALUE, high));
+        }
+        return result;
     }
 
     @Override
     public boolean lessOrEqualAux(IntervalsWithOverflow other) throws SemanticException {
         if (this.isBottom)
             return true;
+        if (other.isTop)
+            return true;
         if (other.isBottom)
-            return false;
-        if (other.equals(TOP))
-            return true;
-        if (this.equals(other))
-            return true;
+            return this.isBottom;
+        if (this.isTop)
+            return other.isTop;
 
-        return other.low <= this.low && this.high <= other.high;
+        for (Segment s : this.toSegments()) {
+            for (long v : s.endpointsAsLongs()) {
+                if (!other.contains((int) v))
+                    return false;
+            }
+        }
+
+        if (!this.isWrapped()) {
+            return other.contains(this.low) && other.contains(this.high);
+        }
+
+        return other.contains(this.low)
+                && other.contains(this.high)
+                && other.contains(Integer.MIN_VALUE)
+                && other.contains(Integer.MAX_VALUE);
     }
 
     @Override
@@ -109,26 +206,62 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
             return other;
         if (other.isBottom)
             return this;
+        if (this.isTop || other.isTop)
+            return TOP;
         if (this.equals(other))
             return this;
 
-        int newLow = Math.min(this.low, other.low);
-        int newHigh = Math.max(this.high, other.high);
-        return new IntervalsWithOverflow(newLow, newHigh);
+        if (other.lessOrEqual(this))
+            return this;
+
+        if (this.lessOrEqual(other))
+            return other;
+
+        List<Integer> points = new ArrayList<>();
+        addBoundaryPoints(points, this);
+        addBoundaryPoints(points, other);
+
+        return smallestCoveringInterval(points);
     }
 
     @Override
     public IntervalsWithOverflow glbAux(IntervalsWithOverflow other) throws SemanticException {
         if (this.isBottom || other.isBottom)
             return BOTTOM;
+        if (this.isTop)
+            return other;
+        if (other.isTop)
+            return this;
 
-        int newLow = Math.max(this.low, other.low);
-        int newHigh = Math.min(this.high, other.high);
+        List<Segment> intersections = new ArrayList<>();
+        for (Segment s1 : this.toSegments()) {
+            for (Segment s2 : other.toSegments()) {
+                Segment inter = s1.intersection(s2);
+                if (inter != null)
+                    intersections.add(inter);
+            }
+        }
 
-        if (newLow > newHigh)
+        if (intersections.isEmpty())
             return BOTTOM;
 
-        return new IntervalsWithOverflow(newLow, newHigh);
+        List<Segment> merged = mergeSegments(intersections);
+
+        if (merged.size() == 1) {
+            Segment s = merged.get(0);
+            return new IntervalsWithOverflow(s.low, s.high);
+        }
+
+        if (merged.size() == 2) {
+            Segment first = merged.get(0);
+            Segment second = merged.get(1);
+
+            if (first.low == Integer.MIN_VALUE && second.high == Integer.MAX_VALUE) {
+                return new IntervalsWithOverflow(second.low, first.high);
+            }
+        }
+
+        return TOP;
     }
 
     @Override
@@ -137,9 +270,20 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
             return other;
         if (other.isBottom)
             return this;
+        if (this.isTop || other.isTop)
+            return TOP;
+
+        if (other.lessOrEqual(this))
+            return this;
+
+        if (this.isWrapped() || other.isWrapped())
+            return TOP;
 
         int newLow = other.low < this.low ? Integer.MIN_VALUE : this.low;
         int newHigh = other.high > this.high ? Integer.MAX_VALUE : this.high;
+
+        if (newLow == Integer.MIN_VALUE && newHigh == Integer.MAX_VALUE)
+            return TOP;
 
         return new IntervalsWithOverflow(newLow, newHigh);
     }
@@ -167,15 +311,11 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
 
         if (arg.isBottom)
             return BOTTOM;
+        if (arg.isTop)
+            return TOP;
 
         if (operator == NumericNegation.INSTANCE) {
-            long newLow = -(long) arg.high;
-            long newHigh = -(long) arg.low;
-
-            if (!fitsInt(newLow) || !fitsInt(newHigh))
-                return TOP;
-
-            return new IntervalsWithOverflow((int) newLow, (int) newHigh);
+            return mapUnary(arg, v -> -v);
         }
 
         return TOP;
@@ -191,58 +331,332 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
 
         if (left.isBottom || right.isBottom)
             return BOTTOM;
+        if (left.isTop || right.isTop)
+            return TOP;
 
         if (operator instanceof AdditionOperator) {
-            long newLow = (long) left.low + right.low;
-            long newHigh = (long) left.high + right.high;
-
-            if (!fitsInt(newLow) || !fitsInt(newHigh))
-                return TOP;
-
-            return new IntervalsWithOverflow((int) newLow, (int) newHigh);
+            return mapBinary(left, right, (a, b) -> a + b);
         } else if (operator instanceof SubtractionOperator) {
-            long newLow = (long) left.low - right.high;
-            long newHigh = (long) left.high - right.low;
-
-            if (!fitsInt(newLow) || !fitsInt(newHigh))
-                return TOP;
-
-            return new IntervalsWithOverflow((int) newLow, (int) newHigh);
+            return mapBinary(left, right, (a, b) -> a - b);
         } else if (operator instanceof MultiplicationOperator) {
-            long p1 = (long) left.low * right.low;
-            long p2 = (long) left.low * right.high;
-            long p3 = (long) left.high * right.low;
-            long p4 = (long) left.high * right.high;
-
-            long min = Math.min(Math.min(p1, p2), Math.min(p3, p4));
-            long max = Math.max(Math.max(p1, p2), Math.max(p3, p4));
-
-            if (!fitsInt(min) || !fitsInt(max))
-                return TOP;
-
-            return new IntervalsWithOverflow((int) min, (int) max);
+            return mapBinary(left, right, (a, b) -> a * b);
         } else if (operator instanceof DivisionOperator) {
-            if (right.low <= 0 && 0 <= right.high)
+            if (right.contains(0))
                 return TOP;
-
-            long d1 = left.low / right.low;
-            long d2 = left.low / right.high;
-            long d3 = left.high / right.low;
-            long d4 = left.high / right.high;
-
-            long min = Math.min(Math.min(d1, d2), Math.min(d3, d4));
-            long max = Math.max(Math.max(d1, d2), Math.max(d3, d4));
-
-            if (!fitsInt(min) || !fitsInt(max))
-                return TOP;
-
-            return new IntervalsWithOverflow((int) min, (int) max);
+            return mapBinaryDivision(left, right);
         }
 
         return TOP;
     }
 
-    private static boolean fitsInt(long value) {
-        return value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE;
+    /**
+     * Applies a unary operator to representative endpoints of the interval and rebuilds
+     * a sound wrapped interval approximation.
+     */
+    private static IntervalsWithOverflow mapUnary(
+            IntervalsWithOverflow arg,
+            IntUnaryModOperator op) {
+
+        List<Integer> images = new ArrayList<>();
+        for (int p : representativePoints(arg)) {
+            images.add(op.apply(p));
+        }
+        return fromPoints(images);
+    }
+
+    /**
+     * Applies a binary modular operator to representative endpoints of the operands and
+     * rebuilds a sound wrapped interval approximation.
+     */
+    private static IntervalsWithOverflow mapBinary(
+            IntervalsWithOverflow left,
+            IntervalsWithOverflow right,
+            IntBinaryModOperator op) {
+
+        List<Integer> images = new ArrayList<>();
+        for (int a : representativePoints(left)) {
+            for (int b : representativePoints(right)) {
+                images.add(op.apply(a, b));
+            }
+        }
+        return fromPoints(images);
+    }
+
+    /**
+     * Division is handled separately because Java modular division differs from +,-,*:
+     * it throws away cases involving zero divisor, and MIN_VALUE / -1 overflows to MIN_VALUE.
+     */
+    private static IntervalsWithOverflow mapBinaryDivision(
+            IntervalsWithOverflow left,
+            IntervalsWithOverflow right) {
+
+        List<Integer> images = new ArrayList<>();
+        for (int a : representativePoints(left)) {
+            for (int b : representativePoints(right)) {
+                if (b == 0)
+                    continue;
+                images.add(a / b);
+            }
+        }
+
+        if (images.isEmpty())
+            return TOP;
+
+        return fromPoints(images);
+    }
+
+    /**
+     * Returns representative points used to build a sound coarse approximation.
+     *
+     * <p>
+     * For a standard interval: endpoints.
+     * For a wrapped interval: low, high, MIN_VALUE, MAX_VALUE.
+     * </p>
+     */
+    private static List<Integer> representativePoints(IntervalsWithOverflow i) {
+        List<Integer> pts = new ArrayList<>();
+        if (i.isBottom)
+            return pts;
+        if (i.isTop) {
+            pts.add(Integer.MIN_VALUE);
+            pts.add(Integer.MAX_VALUE);
+            pts.add(0);
+            return pts;
+        }
+
+        pts.add(i.low);
+        pts.add(i.high);
+
+        if (i.isWrapped()) {
+            pts.add(Integer.MIN_VALUE);
+            pts.add(Integer.MAX_VALUE);
+        }
+
+        return dedup(pts);
+    }
+
+    /**
+     * Builds the smallest standard interval or wrapped interval covering the given points.
+     * If no single wrapped interval is clearly better than TOP, returns TOP.
+     */
+    private static IntervalsWithOverflow fromPoints(List<Integer> points) {
+        points = dedup(points);
+
+        if (points.isEmpty())
+            return BOTTOM;
+        if (points.size() == 1) {
+            int v = points.get(0);
+            return new IntervalsWithOverflow(v, v);
+        }
+
+        Segment hull = lineHull(points);
+
+        int circularGapStart = 0;
+        long bestGap = Long.MIN_VALUE;
+
+        List<Long> ordered = new ArrayList<>();
+        for (int p : points)
+            ordered.add(unsignedKey(p));
+        ordered.sort(Long::compare);
+
+        for (int i = 0; i < ordered.size(); i++) {
+            long cur = ordered.get(i);
+            long next = ordered.get((i + 1) % ordered.size());
+            long gap = (i + 1 < ordered.size())
+                    ? next - cur
+                    : (1L << 32) - cur + next;
+
+            if (gap > bestGap) {
+                bestGap = gap;
+                circularGapStart = i;
+            }
+        }
+
+        long start = ordered.get((circularGapStart + 1) % ordered.size());
+        long end = ordered.get(circularGapStart);
+
+        int wrappedLow = fromUnsignedKey(start);
+        int wrappedHigh = fromUnsignedKey(end);
+
+        IntervalsWithOverflow wrapped = new IntervalsWithOverflow(wrappedLow, wrappedHigh);
+        IntervalsWithOverflow standard = new IntervalsWithOverflow(hull.low, hull.high);
+
+        for (int p : points) {
+            if (!wrapped.contains(p))
+                return standard;
+        }
+
+        long stdSize = hull.size();
+        long wrapSize = wrappedApproxSize(wrapped);
+
+        if (wrapSize < stdSize)
+            return wrapped;
+        return standard;
+    }
+
+    /**
+     * Adds the boundary points that characterize an interval.
+     */
+    private static void addBoundaryPoints(List<Integer> points, IntervalsWithOverflow i) {
+        if (i.isBottom || i.isTop)
+            return;
+
+        points.add(i.low);
+        points.add(i.high);
+
+        if (i.isWrapped()) {
+            points.add(Integer.MIN_VALUE);
+            points.add(Integer.MAX_VALUE);
+        }
+    }
+
+    /**
+     * Builds the smallest wrapped/non-wrapped interval covering all given points on the
+     * 32-bit modular circle.
+     */
+    private static IntervalsWithOverflow smallestCoveringInterval(List<Integer> points) {
+        points = dedup(points);
+
+        if (points.isEmpty())
+            return BOTTOM;
+
+        if (points.size() == 1) {
+            int v = points.get(0);
+            return new IntervalsWithOverflow(v, v);
+        }
+
+        List<Long> ordered = new ArrayList<>();
+        for (int p : points)
+            ordered.add(unsignedKey(p));
+        ordered.sort(Long::compare);
+
+        long bestGap = Long.MIN_VALUE;
+        int gapIndex = -1;
+
+        for (int i = 0; i < ordered.size(); i++) {
+            long cur = ordered.get(i);
+            long next = ordered.get((i + 1) % ordered.size());
+            long gap = (i + 1 < ordered.size())
+                    ? next - cur
+                    : (1L << 32) - cur + next;
+
+            if (gap > bestGap) {
+                bestGap = gap;
+                gapIndex = i;
+            }
+        }
+
+        long start = ordered.get((gapIndex + 1) % ordered.size());
+        long end = ordered.get(gapIndex);
+
+        int newLow = fromUnsignedKey(start);
+        int newHigh = fromUnsignedKey(end);
+
+        return new IntervalsWithOverflow(newLow, newHigh);
+    }
+
+    private static long wrappedApproxSize(IntervalsWithOverflow i) {
+        if (i.isTop)
+            return 1L << 32;
+        if (i.isBottom)
+            return 0;
+        if (!i.isWrapped())
+            return (long) i.high - i.low + 1L;
+
+        long highPart = (long) Integer.MAX_VALUE - i.low + 1L;
+        long lowPart = (long) i.high - Integer.MIN_VALUE + 1L;
+        return highPart + lowPart;
+    }
+
+    private static Segment lineHull(List<Integer> points) {
+        int min = Integer.MAX_VALUE;
+        int max = Integer.MIN_VALUE;
+        for (int p : points) {
+            min = Math.min(min, p);
+            max = Math.max(max, p);
+        }
+        return new Segment(min, max);
+    }
+
+    private static List<Integer> dedup(List<Integer> input) {
+        List<Integer> out = new ArrayList<>();
+        for (int x : input) {
+            if (!out.contains(x))
+                out.add(x);
+        }
+        return out;
+    }
+
+    private static List<Segment> mergeSegments(List<Segment> segments) {
+        if (segments.isEmpty())
+            return segments;
+
+        segments.sort((a, b) -> {
+            int c = Integer.compare(a.low, b.low);
+            if (c != 0)
+                return c;
+            return Integer.compare(a.high, b.high);
+        });
+
+        List<Segment> merged = new ArrayList<>();
+        Segment cur = segments.get(0);
+
+        for (int i = 1; i < segments.size(); i++) {
+            Segment next = segments.get(i);
+            if ((long) next.low <= (long) cur.high + 1L) {
+                cur = new Segment(cur.low, Math.max(cur.high, next.high));
+            } else {
+                merged.add(cur);
+                cur = next;
+            }
+        }
+
+        merged.add(cur);
+        return merged;
+    }
+
+    private static long unsignedKey(int x) {
+        return Integer.toUnsignedLong(x);
+    }
+
+    private static int fromUnsignedKey(long x) {
+        return (int) x;
+    }
+
+    private interface IntUnaryModOperator {
+        int apply(int x);
+    }
+
+    private interface IntBinaryModOperator {
+        int apply(int x, int y);
+    }
+
+    private static final class Segment {
+        private final int low;
+        private final int high;
+
+        private Segment(int low, int high) {
+            this.low = low;
+            this.high = high;
+        }
+
+        private Segment intersection(Segment other) {
+            int l = Math.max(this.low, other.low);
+            int h = Math.min(this.high, other.high);
+            if (l > h)
+                return null;
+            return new Segment(l, h);
+        }
+
+        private List<Long> endpointsAsLongs() {
+            List<Long> pts = new ArrayList<>();
+            pts.add((long) low);
+            pts.add((long) high);
+            return pts;
+        }
+
+        private long size() {
+            return (long) high - low + 1L;
+        }
     }
 }
