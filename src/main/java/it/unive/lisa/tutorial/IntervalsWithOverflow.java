@@ -47,10 +47,6 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
         this.isBottom = isBottom;
     }
 
-    public boolean isCircular() {
-        return !isBottom && low > high;
-    }
-
     @Override
     public int hashCode() {
         return Objects.hash(low, high, isBottom);
@@ -104,9 +100,7 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
         if (this.equals(other))
             return true;
 
-        if (!this.isCircular() && !other.isCircular())
-            return other.low <= this.low && this.high <= other.high;
-        return false;
+        return other.low <= this.low && this.high <= other.high;
     }
 
     @Override
@@ -115,12 +109,8 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
             return other;
         if (other.isBottom)
             return this;
-
         if (this.equals(other))
             return this;
-
-        if (this.isCircular() || other.isCircular())
-            return TOP;
 
         int newLow = Math.min(this.low, other.low);
         int newHigh = Math.max(this.high, other.high);
@@ -132,15 +122,13 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
         if (this.isBottom || other.isBottom)
             return BOTTOM;
 
-        if (!this.isCircular() && !other.isCircular()) {
-            int newLow = Math.max(this.low, other.low);
-            int newHigh = Math.min(this.high, other.high);
-            if (newLow > newHigh)
-                return BOTTOM;
-            return new IntervalsWithOverflow(newLow, newHigh);
-        }
+        int newLow = Math.max(this.low, other.low);
+        int newHigh = Math.min(this.high, other.high);
 
-        return BOTTOM;
+        if (newLow > newHigh)
+            return BOTTOM;
+
+        return new IntervalsWithOverflow(newLow, newHigh);
     }
 
     @Override
@@ -149,9 +137,6 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
             return other;
         if (other.isBottom)
             return this;
-
-        if (this.isCircular() || other.isCircular())
-            return TOP;
 
         int newLow = other.low < this.low ? Integer.MIN_VALUE : this.low;
         int newHigh = other.high > this.high ? Integer.MAX_VALUE : this.high;
@@ -206,9 +191,6 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
 
         if (left.isBottom || right.isBottom)
             return BOTTOM;
-
-        if (left.isCircular() || right.isCircular())
-            return TOP;
 
         if (operator instanceof AdditionOperator) {
             long newLow = (long) left.low + right.low;
