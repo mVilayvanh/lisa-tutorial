@@ -397,4 +397,22 @@ public class IntervalsWithOverflowDomainTest {
         assertEquals(Satisfiability.UNKNOWN,
                 wrapped.satisfiesBinaryExpression(ComparisonLt.INSTANCE, wrapped, standard, null, null));
     }
+
+    @Test
+    public void testMultiplicationWithNegative() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(-2, -1);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(3, 4);
+
+        assertEquals(new IntervalsWithOverflow(-8, -3),
+                a.evalBinaryExpression(MUL, a, b, null, null));
+    }
+
+    @Test
+    public void testMultiplicationCrossingZero() throws SemanticException {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(-2, 3);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(4, 5);
+
+        assertEquals(new IntervalsWithOverflow(-10, 15),
+                a.evalBinaryExpression(MUL, a, b, null, null));
+    }
 }

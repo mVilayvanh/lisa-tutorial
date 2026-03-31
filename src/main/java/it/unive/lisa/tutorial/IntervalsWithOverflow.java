@@ -31,25 +31,30 @@ import it.unive.lisa.util.representation.StringRepresentation;
 import it.unive.lisa.util.representation.StructuredRepresentation;
 
 /**
- * Wrapped interval domain over 32-bit signed integers.
+ * Domaine d'intervalles circulaires sur les entiers signés 32 bits.
  *
  * <p>
- * This domain models machine integers with modular arithmetic (Java int semantics).
- * An element [low, high] is interpreted as:
+ * Ce domaine modélise les entiers machine avec l'arithmétique modulaire
+ * de Java sur les int.
+ * </p>
+ *
+ * <p>
+ * Un élément [low, high] est interprété comme :
  * </p>
  * <ul>
- *   <li>a standard interval if low <= high</li>
- *   <li>a wrapped interval crossing the modular boundary if low > high</li>
+ *   <li>un intervalle standard si low &lt;= high</li>
+ *   <li>un intervalle circulaire franchissant la borne modulaire si low &gt; high</li>
  * </ul>
  *
  * <p>
- * Example: [Integer.MAX_VALUE - 1, Integer.MIN_VALUE + 2] is a valid wrapped interval.
+ * Exemple : [Integer.MAX_VALUE - 1, Integer.MIN_VALUE + 2] est un intervalle
+ * circulaire valide.
  * </p>
  *
  * <p>
- * This is a sound but intentionally simple implementation: when an arithmetic result
- * cannot be represented precisely by a single wrapped interval, the domain safely
- * over-approximates it, possibly returning TOP.
+ * L'implémentation reste volontairement simple. Lorsqu'un résultat arithmétique
+ * ne peut pas être représenté de façon sûre et suffisamment simple avec un seul
+ * intervalle de ce domaine, le résultat est sur-approché, éventuellement par TOP.
  * </p>
  */
 public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<IntervalsWithOverflow> {
@@ -143,7 +148,7 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     /**
-     * Returns true if the interval contains the concrete value v.
+     * Indique si l'intervalle contient la valeur concrète v.
      */
     public boolean contains(int v) {
         if (isBottom)
@@ -156,12 +161,13 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     /**
-     * Returns the concrete segments representing this interval on the standard signed line.
+     * Retourne les segments concrets correspondant à cet intervalle
+     * sur la droite signée standard.
      *
      * <p>
-     * A non-wrapped interval is returned as one segment.
-     * A wrapped interval [low, high] is returned as two segments:
-     * [low, Integer.MAX_VALUE] and [Integer.MIN_VALUE, high].
+     * Un intervalle non circulaire est renvoyé sous la forme d'un seul segment.
+     * Un intervalle circulaire [low, high] est renvoyé sous la forme de deux segments :
+     * [low, Integer.MAX_VALUE] et [Integer.MIN_VALUE, high].
      * </p>
      */
     private List<Segment> toSegments() {
@@ -289,7 +295,6 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
         if (this.equals(other))
             return this;
 
-        // Conservative fallback for wrapped intervals
         if (this.isWrapped() || other.isWrapped())
             return TOP;
 
@@ -302,7 +307,6 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
         if (other.high > this.high) {
             long growth = (long) other.high - this.high;
 
-            // Small progressive growth is kept precise
             if (growth <= 1L)
                 newHigh = other.high;
             else
@@ -366,23 +370,22 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
         } else if (operator instanceof SubtractionOperator) {
             return mapBinary(left, right, (a, b) -> a - b);
         } else if (operator instanceof MultiplicationOperator) {
-            return mapBinary(left, right, (a, b) -> a * b);
+            return evalMultiplicationSound(left, right);
         } else if (operator instanceof DivisionOperator) {
-            if (right.contains(0))
-                return TOP;
-            return mapBinaryDivision(left, right);
+            return evalDivisionSound(left, right);
         }
 
         return TOP;
     }
 
     /**
-     * Evaluates the satisfiability of comparison operators.
+     * Évalue la satisfiabilité d'opérateurs de comparaison.
      *
      * <p>
-     * This implementation is intentionally conservative. Equality/inequality are handled
-     * through the intersection of operands. Ordering comparisons are handled precisely
-     * only on non-wrapped intervals; wrapped cases safely return UNKNOWN.
+     * Cette implémentation reste volontairement conservative. L'égalité et la
+     * différence sont traitées via l'intersection. Les comparaisons d'ordre sont
+     * traitées précisément uniquement pour des intervalles non circulaires ; dans
+     * les autres cas, le résultat est UNKNOWN.
      * </p>
      */
     @Override
@@ -461,12 +464,12 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     /**
-     * Refines the environment after assuming a comparison on a variable.
+     * Raffine l'environnement après l'hypothèse d'une comparaison sur une variable.
      *
      * <p>
-     * This refinement is conservative. Equality is handled through intersection, while
-     * ordering comparisons are refined only against non-wrapped bounds. Wrapped bounds
-     * safely produce no refinement.
+     * Le raffinement reste conservatif. L'égalité est traitée par intersection.
+     * Les comparaisons d'ordre ne sont raffinées que contre des bornes non
+     * circulaires ; sinon, aucun raffinement n'est effectué.
      * </p>
      */
     @Override
@@ -513,8 +516,8 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     /**
-     * Applies a unary operator to representative endpoints of the interval and rebuilds
-     * a sound wrapped interval approximation.
+     * Applique un opérateur unaire à des points représentatifs et reconstruit
+     * une sur-approximation sûre dans le domaine.
      */
     private static IntervalsWithOverflow mapUnary(
             IntervalsWithOverflow arg,
@@ -528,8 +531,13 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     /**
-     * Applies a binary modular operator to representative endpoints of the operands and
-     * rebuilds a sound wrapped interval approximation.
+     * Applique un opérateur binaire modulaire à des points représentatifs et
+     * reconstruit une sur-approximation dans le domaine.
+     *
+     * <p>
+     * Cette fonction est conservée pour les opérateurs déjà traités de cette
+     * manière dans cette version du code.
+     * </p>
      */
     private static IntervalsWithOverflow mapBinary(
             IntervalsWithOverflow left,
@@ -546,34 +554,121 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     /**
-     * Division is handled separately because Java modular division differs from +,-,*:
-     * it throws away cases involving zero divisor, and MIN_VALUE / -1 overflows to MIN_VALUE.
+     * Multiplication sûre.
+     *
+     * <p>
+     * Cas traités précisément :
+     * </p>
+     * <ul>
+     *   <li>deux singletons</li>
+     *   <li>deux intervalles non circulaires si aucun produit d'extrémités ne
+     *       déborde hors de l'intervalle des int</li>
+     * </ul>
+     *
+     * <p>
+     * Tous les autres cas sont sur-approchés par TOP afin de préserver la sûreté.
+     * </p>
      */
-    private static IntervalsWithOverflow mapBinaryDivision(
+    private static IntervalsWithOverflow evalMultiplicationSound(
             IntervalsWithOverflow left,
             IntervalsWithOverflow right) {
 
-        List<Integer> images = new ArrayList<>();
-        for (int a : representativePoints(left)) {
-            for (int b : representativePoints(right)) {
-                if (b == 0)
-                    continue;
-                images.add(a / b);
-            }
+        if (left.isSingleton() && right.isSingleton()) {
+            int v = left.low * right.low;
+            return new IntervalsWithOverflow(v, v);
         }
 
-        if (images.isEmpty())
+        if (left.isWrapped() || right.isWrapped())
             return TOP;
 
-        return fromPoints(images);
+        long[] candidates = new long[] {
+                (long) left.low * (long) right.low,
+                (long) left.low * (long) right.high,
+                (long) left.high * (long) right.low,
+                (long) left.high * (long) right.high
+        };
+
+        for (long c : candidates) {
+            if (c < Integer.MIN_VALUE || c > Integer.MAX_VALUE)
+                return TOP;
+        }
+
+        long min = candidates[0];
+        long max = candidates[0];
+        for (int i = 1; i < candidates.length; i++) {
+            min = Math.min(min, candidates[i]);
+            max = Math.max(max, candidates[i]);
+        }
+
+        return new IntervalsWithOverflow((int) min, (int) max);
     }
 
     /**
-     * Returns representative points used to build a sound coarse approximation.
+     * Division sûre.
      *
      * <p>
-     * For a standard interval: endpoints.
-     * For a wrapped interval: low, high, MIN_VALUE, MAX_VALUE.
+     * Cas traités précisément :
+     * </p>
+     * <ul>
+     *   <li>deux singletons avec diviseur non nul</li>
+     *   <li>deux intervalles non circulaires, diviseur strictement positif ou
+     *       strictement négatif, et sans risque du cas particulier
+     *       Integer.MIN_VALUE / -1</li>
+     * </ul>
+     *
+     * <p>
+     * Si le diviseur peut contenir 0, ou si la situation est plus complexe,
+     * on renvoie TOP par sûreté.
+     * </p>
+     */
+    private static IntervalsWithOverflow evalDivisionSound(
+            IntervalsWithOverflow left,
+            IntervalsWithOverflow right) {
+
+        if (right.contains(0))
+            return TOP;
+
+        if (left.isSingleton() && right.isSingleton()) {
+            int v = left.low / right.low;
+            return new IntervalsWithOverflow(v, v);
+        }
+
+        if (left.isWrapped() || right.isWrapped())
+            return TOP;
+
+        boolean rightStrictlyPositive = right.low > 0;
+        boolean rightStrictlyNegative = right.high < 0;
+
+        if (!rightStrictlyPositive && !rightStrictlyNegative)
+            return TOP;
+
+        if (left.contains(Integer.MIN_VALUE) && right.contains(-1))
+            return TOP;
+
+        int[] candidates = new int[] {
+                left.low / right.low,
+                left.low / right.high,
+                left.high / right.low,
+                left.high / right.high
+        };
+
+        int min = candidates[0];
+        int max = candidates[0];
+        for (int i = 1; i < candidates.length; i++) {
+            min = Math.min(min, candidates[i]);
+            max = Math.max(max, candidates[i]);
+        }
+
+        return new IntervalsWithOverflow(min, max);
+    }
+
+    /**
+     * Retourne des points représentatifs utilisés pour construire une
+     * approximation grossière.
+     *
+     * <p>
+     * Pour un intervalle standard : les bornes.
+     * Pour un intervalle circulaire : low, high, MIN_VALUE et MAX_VALUE.
      * </p>
      */
     private static List<Integer> representativePoints(IntervalsWithOverflow i) {
@@ -599,8 +694,10 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     /**
-     * Builds the smallest standard interval or wrapped interval covering the given points.
-     * If no single wrapped interval is clearly better than TOP, returns TOP.
+     * Construit le plus petit intervalle standard ou circulaire couvrant les
+     * points donnés. Si aucune représentation simple n'est clairement meilleure
+     * que TOP, on renvoie la meilleure approximation construite à partir des
+     * points observés.
      */
     private static IntervalsWithOverflow fromPoints(List<Integer> points) {
         points = dedup(points);
@@ -658,7 +755,7 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     /**
-     * Adds the boundary points that characterize an interval.
+     * Ajoute les points de frontière caractérisant un intervalle.
      */
     private static void addBoundaryPoints(List<Integer> points, IntervalsWithOverflow i) {
         if (i.isBottom || i.isTop)
@@ -674,8 +771,8 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     /**
-     * Builds the smallest wrapped/non-wrapped interval covering all given points on the
-     * 32-bit modular circle.
+     * Construit le plus petit intervalle standard ou circulaire couvrant les
+     * points donnés sur le cercle modulaire 32 bits.
      */
     private static IntervalsWithOverflow smallestCoveringInterval(List<Integer> points) {
         points = dedup(points);
@@ -779,33 +876,34 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     /**
-     * Returns true if this abstract value is a singleton interval [v, v].
+     * Indique si la valeur abstraite est un singleton [v, v].
      */
     private boolean isSingleton() {
         return !isBottom && !isTop && low == high;
     }
 
     /**
-     * Safely increments a machine integer without leaving the 32-bit signed range.
+     * Incrémente prudemment un entier machine sans sortir de l'intervalle int.
      */
     private static int safeIncrement(int x) {
         return x == Integer.MAX_VALUE ? Integer.MAX_VALUE : x + 1;
     }
 
     /**
-     * Safely decrements a machine integer without leaving the 32-bit signed range.
+     * Décrémente prudemment un entier machine sans sortir de l'intervalle int.
      */
     private static int safeDecrement(int x) {
         return x == Integer.MIN_VALUE ? Integer.MIN_VALUE : x - 1;
     }
 
     /**
-     * Computes a conservative refinement of {@code starting} after assuming a comparison
-     * against {@code eval}.
+     * Calcule un raffinement conservatif de {@code starting} après une hypothèse
+     * de comparaison contre {@code eval}.
      *
      * <p>
-     * Refinement is performed only when it can be expressed safely with the current
-     * wrapped-interval abstraction. Wrapped bounds are conservatively ignored.
+     * Le raffinement n'est réalisé que lorsqu'il peut être exprimé de manière
+     * sûre dans l'abstraction courante. Les bornes circulaires sont ignorées de
+     * manière conservative.
      * </p>
      */
     private static IntervalsWithOverflow refineByComparison(
