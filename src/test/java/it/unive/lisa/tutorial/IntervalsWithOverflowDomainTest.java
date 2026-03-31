@@ -9,11 +9,18 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 import it.unive.lisa.analysis.SemanticException;
+import it.unive.lisa.analysis.lattices.Satisfiability;
 import it.unive.lisa.symbolic.value.operator.AdditionOperator;
 import it.unive.lisa.symbolic.value.operator.DivisionOperator;
 import it.unive.lisa.symbolic.value.operator.MultiplicationOperator;
 import it.unive.lisa.symbolic.value.operator.SubtractionOperator;
 import it.unive.lisa.symbolic.value.operator.binary.BinaryOperator;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonEq;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonGe;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonGt;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonLe;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonLt;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonNe;
 import it.unive.lisa.symbolic.value.operator.unary.NumericNegation;
 import it.unive.lisa.type.Type;
 import it.unive.lisa.type.TypeSystem;
@@ -277,5 +284,117 @@ public class IntervalsWithOverflowDomainTest {
 
         assertEquals(IntervalsWithOverflow.BOTTOM,
                 a.evalBinaryExpression(ADD, a, IntervalsWithOverflow.BOTTOM, null, null));
+    }
+
+    // -------------------------
+    // Comparison satisfiability
+    // -------------------------
+
+    @Test
+    public void testSatisfiesEqSatisfied() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(5, 5);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(5, 5);
+
+        assertEquals(Satisfiability.SATISFIED,
+                a.satisfiesBinaryExpression(ComparisonEq.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesEqNotSatisfied() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(5, 5);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(6, 6);
+
+        assertEquals(Satisfiability.NOT_SATISFIED,
+                a.satisfiesBinaryExpression(ComparisonEq.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesEqUnknown() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(1, 10);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(5, 20);
+
+        assertEquals(Satisfiability.UNKNOWN,
+                a.satisfiesBinaryExpression(ComparisonEq.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesNeSatisfied() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(1, 3);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(5, 8);
+
+        assertEquals(Satisfiability.SATISFIED,
+                a.satisfiesBinaryExpression(ComparisonNe.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesNeNotSatisfied() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(7, 7);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(7, 7);
+
+        assertEquals(Satisfiability.NOT_SATISFIED,
+                a.satisfiesBinaryExpression(ComparisonNe.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesLtSatisfied() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(1, 3);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(5, 8);
+
+        assertEquals(Satisfiability.SATISFIED,
+                a.satisfiesBinaryExpression(ComparisonLt.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesLtNotSatisfied() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(7, 9);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(2, 4);
+
+        assertEquals(Satisfiability.NOT_SATISFIED,
+                a.satisfiesBinaryExpression(ComparisonLt.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesLeSatisfied() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(1, 3);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(3, 8);
+
+        assertEquals(Satisfiability.SATISFIED,
+                a.satisfiesBinaryExpression(ComparisonLe.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesLeUnknownWhenOverlap() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(1, 5);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(4, 8);
+
+        assertEquals(Satisfiability.UNKNOWN,
+                a.satisfiesBinaryExpression(ComparisonLe.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesGeSatisfied() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(8, 10);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(1, 3);
+
+        assertEquals(Satisfiability.SATISFIED,
+                a.satisfiesBinaryExpression(ComparisonGe.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesGtSatisfied() {
+        IntervalsWithOverflow a = new IntervalsWithOverflow(8, 10);
+        IntervalsWithOverflow b = new IntervalsWithOverflow(1, 3);
+
+        assertEquals(Satisfiability.SATISFIED,
+                a.satisfiesBinaryExpression(ComparisonGt.INSTANCE, a, b, null, null));
+    }
+
+    @Test
+    public void testSatisfiesWrappedComparisonUnknown() {
+        IntervalsWithOverflow wrapped = new IntervalsWithOverflow(10, 5);
+        IntervalsWithOverflow standard = new IntervalsWithOverflow(0, 3);
+
+        assertEquals(Satisfiability.UNKNOWN,
+                wrapped.satisfiesBinaryExpression(ComparisonLt.INSTANCE, wrapped, standard, null, null));
     }
 }

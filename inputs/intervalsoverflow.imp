@@ -51,4 +51,60 @@ class intervalsoverflow {
             b = b + c;
         return b;
     }
+
+    assume_eq_true() {
+        def x = 5;
+        if (x == 5)
+            x = x + 1;
+        return x;
+    }
+
+    assume_eq_false() {
+        def x = 5;
+        if (x == 6)
+            x = x + 100;
+        return x;
+    }
+
+    assume_ne_true() {
+        def x = 5;
+        if (x != 6)
+            x = x + 1;
+        return x;
+    }
+
+    assume_lt_true() {
+        def x = 3;
+        if (x < 5)
+            x = x + 10;
+        return x;
+    }
+
+    assume_le_true() {
+        def x = 5;
+        if (x <= 5)
+            x = x + 1;
+        return x;
+    }
+
+    assume_gt_true() {
+        def x = 8;
+        if (x > 3)
+            x = x - 2;
+        return x;
+    }
+
+    assume_ge_true() {
+        def x = 8;
+        if (x >= 8)
+            x = x + 2;
+        return x;
+    }
+
+    loop_eq_guard() {
+        def x = 0;
+        while (x < 3)
+            x = x + 1;
+        return x;
+    }
 }
