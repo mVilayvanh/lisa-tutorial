@@ -7,14 +7,24 @@ import java.util.Objects;
 import it.unive.lisa.analysis.Lattice;
 import it.unive.lisa.analysis.SemanticException;
 import it.unive.lisa.analysis.SemanticOracle;
+import it.unive.lisa.analysis.lattices.Satisfiability;
 import it.unive.lisa.analysis.nonrelational.value.BaseNonRelationalValueDomain;
+import it.unive.lisa.analysis.nonrelational.value.ValueEnvironment;
 import it.unive.lisa.program.cfg.ProgramPoint;
 import it.unive.lisa.symbolic.value.Constant;
+import it.unive.lisa.symbolic.value.Identifier;
+import it.unive.lisa.symbolic.value.ValueExpression;
 import it.unive.lisa.symbolic.value.operator.AdditionOperator;
 import it.unive.lisa.symbolic.value.operator.DivisionOperator;
 import it.unive.lisa.symbolic.value.operator.MultiplicationOperator;
 import it.unive.lisa.symbolic.value.operator.SubtractionOperator;
 import it.unive.lisa.symbolic.value.operator.binary.BinaryOperator;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonEq;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonGe;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonGt;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonLe;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonLt;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonNe;
 import it.unive.lisa.symbolic.value.operator.unary.NumericNegation;
 import it.unive.lisa.symbolic.value.operator.unary.UnaryOperator;
 import it.unive.lisa.util.representation.StringRepresentation;
@@ -276,11 +286,28 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
         if (other.lessOrEqual(this))
             return this;
 
+        if (this.equals(other))
+            return this;
+
+        // Conservative fallback for wrapped intervals
         if (this.isWrapped() || other.isWrapped())
             return TOP;
 
-        int newLow = other.low < this.low ? Integer.MIN_VALUE : this.low;
-        int newHigh = other.high > this.high ? Integer.MAX_VALUE : this.high;
+        int newLow = this.low;
+        int newHigh = this.high;
+
+        if (other.low < this.low)
+            newLow = Integer.MIN_VALUE;
+
+        if (other.high > this.high) {
+            long growth = (long) other.high - this.high;
+
+            // Small progressive growth is kept precise
+            if (growth <= 1L)
+                newHigh = other.high;
+            else
+                newHigh = Integer.MAX_VALUE;
+        }
 
         if (newLow == Integer.MIN_VALUE && newHigh == Integer.MAX_VALUE)
             return TOP;
@@ -347,6 +374,142 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
         }
 
         return TOP;
+    }
+
+    /**
+     * Evaluates the satisfiability of comparison operators.
+     *
+     * <p>
+     * This implementation is intentionally conservative. Equality/inequality are handled
+     * through the intersection of operands. Ordering comparisons are handled precisely
+     * only on non-wrapped intervals; wrapped cases safely return UNKNOWN.
+     * </p>
+     */
+    @Override
+    public Satisfiability satisfiesBinaryExpression(
+            BinaryOperator operator,
+            IntervalsWithOverflow left,
+            IntervalsWithOverflow right,
+            ProgramPoint pp,
+            SemanticOracle oracle) {
+
+        if (left.isBottom() || right.isBottom())
+            return Satisfiability.NOT_SATISFIED;
+
+        if (left.isTop() || right.isTop())
+            return Satisfiability.UNKNOWN;
+
+        if (operator == ComparisonEq.INSTANCE) {
+            try {
+                IntervalsWithOverflow inter = left.glb(right);
+                if (inter.isBottom())
+                    return Satisfiability.NOT_SATISFIED;
+
+                if (left.isSingleton() && right.isSingleton()
+                        && left.getLow() == right.getLow())
+                    return Satisfiability.SATISFIED;
+
+                return Satisfiability.UNKNOWN;
+            } catch (SemanticException e) {
+                return Satisfiability.UNKNOWN;
+            }
+        }
+
+        if (operator == ComparisonNe.INSTANCE) {
+            try {
+                IntervalsWithOverflow inter = left.glb(right);
+                if (inter.isBottom())
+                    return Satisfiability.SATISFIED;
+
+                if (left.isSingleton() && right.isSingleton()
+                        && left.getLow() == right.getLow())
+                    return Satisfiability.NOT_SATISFIED;
+
+                return Satisfiability.UNKNOWN;
+            } catch (SemanticException e) {
+                return Satisfiability.UNKNOWN;
+            }
+        }
+
+        if (operator == ComparisonGe.INSTANCE)
+            return satisfiesBinaryExpression(ComparisonLe.INSTANCE, right, left, pp, oracle);
+
+        if (operator == ComparisonGt.INSTANCE)
+            return satisfiesBinaryExpression(ComparisonLt.INSTANCE, right, left, pp, oracle);
+
+        if (operator == ComparisonLe.INSTANCE) {
+            if (!left.isWrapped() && !right.isWrapped()) {
+                if (left.getHigh() <= right.getLow())
+                    return Satisfiability.SATISFIED;
+                if (left.getLow() > right.getHigh())
+                    return Satisfiability.NOT_SATISFIED;
+            }
+            return Satisfiability.UNKNOWN;
+        }
+
+        if (operator == ComparisonLt.INSTANCE) {
+            if (!left.isWrapped() && !right.isWrapped()) {
+                if (left.getHigh() < right.getLow())
+                    return Satisfiability.SATISFIED;
+                if (left.getLow() >= right.getHigh())
+                    return Satisfiability.NOT_SATISFIED;
+            }
+            return Satisfiability.UNKNOWN;
+        }
+
+        return Satisfiability.UNKNOWN;
+    }
+
+    /**
+     * Refines the environment after assuming a comparison on a variable.
+     *
+     * <p>
+     * This refinement is conservative. Equality is handled through intersection, while
+     * ordering comparisons are refined only against non-wrapped bounds. Wrapped bounds
+     * safely produce no refinement.
+     * </p>
+     */
+    @Override
+    public ValueEnvironment<IntervalsWithOverflow> assumeBinaryExpression(
+            ValueEnvironment<IntervalsWithOverflow> environment,
+            BinaryOperator operator,
+            ValueExpression left,
+            ValueExpression right,
+            ProgramPoint src,
+            ProgramPoint dest,
+            SemanticOracle oracle)
+            throws SemanticException {
+
+        Identifier id;
+        IntervalsWithOverflow eval;
+        boolean idIsLeft;
+
+        if (left instanceof Identifier) {
+            id = (Identifier) left;
+            eval = eval(right, environment, src, oracle);
+            idIsLeft = true;
+        } else if (right instanceof Identifier) {
+            id = (Identifier) right;
+            eval = eval(left, environment, src, oracle);
+            idIsLeft = false;
+        } else {
+            return environment;
+        }
+
+        IntervalsWithOverflow starting = environment.getState(id);
+
+        if (starting.isBottom() || eval.isBottom())
+            return environment.bottom();
+
+        IntervalsWithOverflow update = refineByComparison(starting, operator, eval, idIsLeft);
+
+        if (update == null)
+            return environment;
+
+        if (update.isBottom())
+            return environment.bottom();
+
+        return environment.putState(id, update);
     }
 
     /**
@@ -613,6 +776,103 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
 
         merged.add(cur);
         return merged;
+    }
+
+    /**
+     * Returns true if this abstract value is a singleton interval [v, v].
+     */
+    private boolean isSingleton() {
+        return !isBottom && !isTop && low == high;
+    }
+
+    /**
+     * Safely increments a machine integer without leaving the 32-bit signed range.
+     */
+    private static int safeIncrement(int x) {
+        return x == Integer.MAX_VALUE ? Integer.MAX_VALUE : x + 1;
+    }
+
+    /**
+     * Safely decrements a machine integer without leaving the 32-bit signed range.
+     */
+    private static int safeDecrement(int x) {
+        return x == Integer.MIN_VALUE ? Integer.MIN_VALUE : x - 1;
+    }
+
+    /**
+     * Computes a conservative refinement of {@code starting} after assuming a comparison
+     * against {@code eval}.
+     *
+     * <p>
+     * Refinement is performed only when it can be expressed safely with the current
+     * wrapped-interval abstraction. Wrapped bounds are conservatively ignored.
+     * </p>
+     */
+    private static IntervalsWithOverflow refineByComparison(
+            IntervalsWithOverflow starting,
+            BinaryOperator operator,
+            IntervalsWithOverflow eval,
+            boolean idIsLeft)
+            throws SemanticException {
+
+        if (starting.isTop() && eval.isTop())
+            return null;
+
+        if (operator == ComparisonEq.INSTANCE) {
+            return starting.glb(eval);
+        }
+
+        if (operator == ComparisonNe.INSTANCE) {
+            if (starting.isSingleton() && eval.isSingleton()
+                    && starting.getLow() == eval.getLow())
+                return BOTTOM;
+
+            return null;
+        }
+
+        if (operator == ComparisonGe.INSTANCE) {
+            return refineByComparison(starting, ComparisonLe.INSTANCE, eval, !idIsLeft);
+        }
+
+        if (operator == ComparisonGt.INSTANCE) {
+            return refineByComparison(starting, ComparisonLt.INSTANCE, eval, !idIsLeft);
+        }
+
+        if (eval.isWrapped()) {
+            return null;
+        }
+
+        if (operator == ComparisonLe.INSTANCE) {
+            if (idIsLeft) {
+                IntervalsWithOverflow bound =
+                        new IntervalsWithOverflow(Integer.MIN_VALUE, eval.getHigh());
+                return starting.glb(bound);
+            } else {
+                IntervalsWithOverflow bound =
+                        new IntervalsWithOverflow(eval.getLow(), Integer.MAX_VALUE);
+                return starting.glb(bound);
+            }
+        }
+
+        if (operator == ComparisonLt.INSTANCE) {
+            if (idIsLeft) {
+                if (eval.getHigh() == Integer.MIN_VALUE)
+                    return BOTTOM;
+
+                IntervalsWithOverflow bound =
+                        new IntervalsWithOverflow(Integer.MIN_VALUE, safeDecrement(eval.getHigh()));
+                return starting.glb(bound);
+            } else {
+                if (eval.getLow() == Integer.MAX_VALUE)
+                    return BOTTOM;
+
+                IntervalsWithOverflow bound =
+                        new IntervalsWithOverflow(safeIncrement(eval.getLow()), Integer.MAX_VALUE);
+                return starting.glb(bound);
+            }
+        }
+
+        return null;
     }
 
     private static long unsignedKey(int x) {
