@@ -70,12 +70,12 @@ public class LinearInequalitiesAmongThreeVariables implements ValueDomain<Linear
 
     @Override
     public LinearInequalitiesAmongThreeVariables pushScope(ScopeToken token) throws SemanticException {
-        return null;
+        return this;
     }
 
     @Override
     public LinearInequalitiesAmongThreeVariables popScope(ScopeToken token) throws SemanticException {
-        return null;
+        return this;
     }
 
     @Override
