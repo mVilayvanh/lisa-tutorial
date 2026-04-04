@@ -8,30 +8,34 @@ import it.unive.lisa.analysis.lattices.InverseSetLattice;
 import it.unive.lisa.analysis.lattices.Satisfiability;
 import it.unive.lisa.analysis.value.ValueDomain;
 import it.unive.lisa.program.cfg.ProgramPoint;
+import it.unive.lisa.symbolic.value.BinaryExpression;
 import it.unive.lisa.symbolic.value.Identifier;
 import it.unive.lisa.symbolic.value.ValueExpression;
+import it.unive.lisa.symbolic.value.operator.AdditionOperator;
 import it.unive.lisa.util.representation.StructuredRepresentation;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonGe;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
 public class LinearInequalitiesAmongThreeVariables
-    extends FunctionalLattice<LinearInequalitiesAmongThreeVariables, Identifier, LinearInequalitiesAmongThreeVariables.SetOfIdentifiers>
+    extends FunctionalLattice<LinearInequalitiesAmongThreeVariables, Identifier, LinearInequalitiesAmongThreeVariables.SetOfPairIdentifiers>
     implements ValueDomain<LinearInequalitiesAmongThreeVariables> {
 
-    public LinearInequalitiesAmongThreeVariables(SetOfIdentifiers lattice, Map<Identifier, SetOfIdentifiers> function) {
+    public LinearInequalitiesAmongThreeVariables(SetOfPairIdentifiers lattice, Map<Identifier, SetOfPairIdentifiers> function) {
         super(lattice, function);
     }
 
     @Override
-    public SetOfIdentifiers stateOfUnknown(Identifier key) {
-        return new SetOfIdentifiers(Collections.emptySet(), true);
+    public SetOfPairIdentifiers stateOfUnknown(Identifier key) {
+        return new SetOfPairIdentifiers(Collections.emptySet(), true);
     }
 
     @Override
-    public LinearInequalitiesAmongThreeVariables mk(SetOfIdentifiers lattice, Map<Identifier, SetOfIdentifiers> function) {
+    public LinearInequalitiesAmongThreeVariables mk(SetOfPairIdentifiers lattice, Map<Identifier, SetOfPairIdentifiers> function) {
         return new LinearInequalitiesAmongThreeVariables(lattice, function);
     }
 
@@ -66,8 +70,33 @@ public class LinearInequalitiesAmongThreeVariables
     }
 
     @Override
-    public LinearInequalitiesAmongThreeVariables assume(ValueExpression expression, ProgramPoint src, ProgramPoint dest, SemanticOracle oracle) throws SemanticException {
-        return null;
+    public LinearInequalitiesAmongThreeVariables assume(
+        ValueExpression expression,
+        ProgramPoint src,
+        ProgramPoint dest,
+        SemanticOracle oracle) throws SemanticException {
+
+        LinearInequalitiesAmongThreeVariables ret = this;
+        if (expression instanceof BinaryExpression cmp) {
+            if (cmp.getOperator() instanceof ComparisonGe &&
+                cmp.getLeft() instanceof Identifier left &&
+                cmp.getRight() instanceof BinaryExpression sum &&
+                sum.getOperator() instanceof AdditionOperator &&
+                sum.getLeft() instanceof Identifier y &&
+                sum.getRight() instanceof Identifier z) {
+                PairIdentifiers pair = new PairIdentifiers(y, z);
+                SetOfPairIdentifiers value = ret.getState(left);
+                if (value.isTop())
+                    value = new SetOfPairIdentifiers(Collections.singleton(pair), true);
+                else {
+                    Set<PairIdentifiers> val = new HashSet<>(value.elements());
+                    val.add(pair);
+                    value = new SetOfPairIdentifiers(val, false);
+                }
+                ret = ret.putState(left, value);
+            }
+        }
+        return ret;
     }
 
     @Override
@@ -105,37 +134,45 @@ public class LinearInequalitiesAmongThreeVariables
         return null;
     }
 
-    public static class PairIdentifiers {
-        Identifier left;
-        Identifier right;
+    public record PairIdentifiers(Identifier first, Identifier second) {
 
+        @Override
+        public boolean equals(Object o) {
+            if (this == o)
+                return true;
+
+            if (!(o instanceof PairIdentifiers other))
+                return false;
+
+            return first.equals(other.first) && second.equals(other.second);
+        }
+
+        @Override
+        public String toString() {
+            return "(" + first + "," + second + ")";
+        }
     }
 
-    public static class SetOfIdentifiers extends InverseSetLattice<SetOfIdentifiers, Identifier> {
-        /**
-         * Builds the lattice.
-         *
-         * @param elements the elements that are contained in the lattice
-         * @param isTop    whether or not this is the top or bottom element of the
-         *                 lattice, valid only if the set of elements is empty
-         */
-        public SetOfIdentifiers(Set<Identifier> elements, boolean isTop) {
+    public static class SetOfPairIdentifiers
+        extends InverseSetLattice<SetOfPairIdentifiers, PairIdentifiers> {
+
+        public SetOfPairIdentifiers(Set<PairIdentifiers> elements, boolean isTop) {
             super(elements, isTop);
         }
 
         @Override
-        public SetOfIdentifiers mk(Set<Identifier> set) {
-            return new SetOfIdentifiers(set, set.isEmpty());
+        public SetOfPairIdentifiers mk(Set<PairIdentifiers> set) {
+            return new SetOfPairIdentifiers(set, set.isEmpty());
         }
 
         @Override
-        public SetOfIdentifiers top() {
-            return this.mk(Collections.emptySet());
+        public SetOfPairIdentifiers top() {
+            return new SetOfPairIdentifiers(Collections.emptySet(), true);
         }
 
         @Override
-        public SetOfIdentifiers bottom() {
-            return new SetOfIdentifiers(Collections.emptySet(), false);
+        public SetOfPairIdentifiers bottom() {
+            return new SetOfPairIdentifiers(Collections.emptySet(), false);
         }
     }
 }
