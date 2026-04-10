@@ -12,6 +12,7 @@ import it.unive.lisa.symbolic.value.BinaryExpression;
 import it.unive.lisa.symbolic.value.Identifier;
 import it.unive.lisa.symbolic.value.ValueExpression;
 import it.unive.lisa.symbolic.value.operator.AdditionOperator;
+import it.unive.lisa.util.representation.StringRepresentation;
 import it.unive.lisa.util.representation.StructuredRepresentation;
 import it.unive.lisa.symbolic.value.operator.binary.ComparisonGe;
 
@@ -29,6 +30,10 @@ public class LinearInequalitiesAmongThreeVariables
         super(lattice, function);
     }
 
+    public LinearInequalitiesAmongThreeVariables() {
+        super(new SetOfPairIdentifiers(Collections.emptySet(), true));
+    }
+
     @Override
     public SetOfPairIdentifiers stateOfUnknown(Identifier key) {
         return new SetOfPairIdentifiers(Collections.emptySet(), true);
@@ -41,12 +46,12 @@ public class LinearInequalitiesAmongThreeVariables
 
     @Override
     public LinearInequalitiesAmongThreeVariables top() {
-        return null;
+        return new LinearInequalitiesAmongThreeVariables(lattice.top(), null);
     }
 
     @Override
     public LinearInequalitiesAmongThreeVariables bottom() {
-        return null;
+        return new LinearInequalitiesAmongThreeVariables(lattice.bottom(), null);
     }
 
     @Override
@@ -55,18 +60,28 @@ public class LinearInequalitiesAmongThreeVariables
     }
 
     @Override
-    public LinearInequalitiesAmongThreeVariables lub(LinearInequalitiesAmongThreeVariables other) throws SemanticException {
-        return null;
+    public LinearInequalitiesAmongThreeVariables lub(
+        LinearInequalitiesAmongThreeVariables other)
+        throws SemanticException {
+        return super.lub(other);
     }
 
     @Override
-    public LinearInequalitiesAmongThreeVariables assign(Identifier id, ValueExpression expression, ProgramPoint pp, SemanticOracle oracle) throws SemanticException {
-        return null;
+    public LinearInequalitiesAmongThreeVariables assign(
+        Identifier id,
+        ValueExpression expression,
+        ProgramPoint pp,
+        SemanticOracle oracle)
+        throws SemanticException {
+
+        LinearInequalitiesAmongThreeVariables result = forgetIdentifier(id);
+
+        return result;
     }
 
     @Override
     public LinearInequalitiesAmongThreeVariables smallStepSemantics(ValueExpression expression, ProgramPoint pp, SemanticOracle oracle) throws SemanticException {
-        return null;
+        return this;
     }
 
     @Override
@@ -101,22 +116,37 @@ public class LinearInequalitiesAmongThreeVariables
 
     @Override
     public boolean knowsIdentifier(Identifier id) {
-        return false;
+        return function.containsKey(id);
     }
 
     @Override
-    public LinearInequalitiesAmongThreeVariables forgetIdentifier(Identifier id) throws SemanticException {
-        return null;
+    public LinearInequalitiesAmongThreeVariables forgetIdentifier(Identifier id)
+        throws SemanticException {
+        if(this.isTop())
+            return this;
+        LinearInequalitiesAmongThreeVariables ret = this;
+        if(this.function.containsKey(id)) {
+            ret = ret.putState(id, lattice.top());
+        }/*
+        for(Identifier i : this.function.keySet()) {
+            if(this.function.get(i).contains(id)) {
+                Set<PairIdentifiers> value = new HashSet<>(this.getState(i).elements);
+                value.remove(id);
+                ret = ret.putState(i, new SetOfPairIdentifiers(value, value.isEmpty()));
+            }
+        }*/
+        return ret;
     }
 
     @Override
     public LinearInequalitiesAmongThreeVariables forgetIdentifiersIf(Predicate<Identifier> test) throws SemanticException {
-        return null;
+        return this;
     }
 
     @Override
     public Satisfiability satisfies(ValueExpression expression, ProgramPoint pp, SemanticOracle oracle) throws SemanticException {
-        return null;
+        if(this.isBottom()) return Satisfiability.BOTTOM;
+        else return Satisfiability.UNKNOWN;
     }
 
     @Override
@@ -129,11 +159,6 @@ public class LinearInequalitiesAmongThreeVariables
         return this;
     }
 
-    @Override
-    public StructuredRepresentation representation() {
-        return null;
-    }
-
     public record PairIdentifiers(Identifier first, Identifier second) {
 
         @Override
@@ -141,10 +166,10 @@ public class LinearInequalitiesAmongThreeVariables
             if (this == o)
                 return true;
 
-            if (!(o instanceof PairIdentifiers other))
+            if (!(o instanceof PairIdentifiers(Identifier first1, Identifier second1)))
                 return false;
 
-            return first.equals(other.first) && second.equals(other.second);
+            return first.equals(first1) && second.equals(second1);
         }
 
         @Override

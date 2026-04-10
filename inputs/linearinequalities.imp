@@ -1,0 +1,14 @@
+class linearinequalities {
+
+	basic(x) {
+		def i = 1;
+		def y = 1;
+        def z = 1;
+        if (i > y + z) {
+            def w = 1;
+        } else {
+            def w = 0;
+        }
+	}
+
+}
