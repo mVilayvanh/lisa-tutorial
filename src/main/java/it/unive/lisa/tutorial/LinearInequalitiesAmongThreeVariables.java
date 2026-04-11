@@ -12,8 +12,6 @@ import it.unive.lisa.symbolic.value.BinaryExpression;
 import it.unive.lisa.symbolic.value.Identifier;
 import it.unive.lisa.symbolic.value.ValueExpression;
 import it.unive.lisa.symbolic.value.operator.AdditionOperator;
-import it.unive.lisa.util.representation.StringRepresentation;
-import it.unive.lisa.util.representation.StructuredRepresentation;
 import it.unive.lisa.symbolic.value.operator.binary.ComparisonGe;
 
 import java.util.Collections;
@@ -56,14 +54,37 @@ public class LinearInequalitiesAmongThreeVariables
 
     @Override
     public boolean lessOrEqual(LinearInequalitiesAmongThreeVariables other) throws SemanticException {
-        return false;
+        if (this.isBottom()) return true;
+        if (other.isTop()) return true;
+        if (this.isTop()) return other.isTop();
+        if (other.isBottom()) return this.isBottom();
+        for (Map.Entry<Identifier, SetOfPairIdentifiers> entry : this.function.entrySet()) {
+            Identifier id = entry.getKey();
+            SetOfPairIdentifiers thisVal = entry.getValue();
+            SetOfPairIdentifiers otherVal = other.getState(id);
+            if (!thisVal.lessOrEqual(otherVal))
+                return false;
+        }
+        return true;
     }
 
     @Override
     public LinearInequalitiesAmongThreeVariables lub(
         LinearInequalitiesAmongThreeVariables other)
         throws SemanticException {
-        return super.lub(other);
+        if (this.isTop() || this.isBottom()) return this;
+        if (this.isTop() || other.isBottom()) return this;
+        if (other.isTop() || this.isBottom()) return other;
+        LinearInequalitiesAmongThreeVariables result = this;
+        Set<Identifier> allKeys = new HashSet<>();
+        if (this.function != null) allKeys.addAll(this.function.keySet());
+        if (other.function != null) allKeys.addAll(other.function.keySet());
+        for (Identifier id : allKeys) {
+            SetOfPairIdentifiers thisVal = this.getState(id);
+            SetOfPairIdentifiers otherVal = other.getState(id);
+            result = result.putState(id, thisVal.lub(otherVal));
+        }
+        return result;
     }
 
     @Override
@@ -73,8 +94,19 @@ public class LinearInequalitiesAmongThreeVariables
         ProgramPoint pp,
         SemanticOracle oracle)
         throws SemanticException {
+        if (this.isTop() || this.isBottom()) return this;
+        LinearInequalitiesAmongThreeVariables result = this;
+        result = verifyIdAmongOtherKey(id, result);
+        result = result.forgetIdentifier(id);
+        if (expression instanceof BinaryExpression sum
+            && sum.getOperator() instanceof AdditionOperator
+            && sum.getLeft() instanceof Identifier y
+            && sum.getRight() instanceof Identifier z) {
 
-        LinearInequalitiesAmongThreeVariables result = forgetIdentifier(id);
+            PairIdentifiers pair = new PairIdentifiers(y, z);
+            result = result.putState(id,
+                new SetOfPairIdentifiers(Collections.singleton(pair), false));
+        }
 
         return result;
     }
@@ -122,19 +154,29 @@ public class LinearInequalitiesAmongThreeVariables
     @Override
     public LinearInequalitiesAmongThreeVariables forgetIdentifier(Identifier id)
         throws SemanticException {
-        if(this.isTop())
-            return this;
+        if (this.isTop() || this.isBottom()) return this;
         LinearInequalitiesAmongThreeVariables ret = this;
-        if(this.function.containsKey(id)) {
+        if (this.function.containsKey(id)) {
             ret = ret.putState(id, lattice.top());
-        }/*
-        for(Identifier i : this.function.keySet()) {
-            if(this.function.get(i).contains(id)) {
-                Set<PairIdentifiers> value = new HashSet<>(this.getState(i).elements);
-                value.remove(id);
-                ret = ret.putState(i, new SetOfPairIdentifiers(value, value.isEmpty()));
+        }
+        ret = verifyIdAmongOtherKey(id, ret);
+        return ret;
+    }
+
+    private LinearInequalitiesAmongThreeVariables verifyIdAmongOtherKey(Identifier id, LinearInequalitiesAmongThreeVariables ret) {
+        for (Identifier key : this.function.keySet()) {
+            if (key.equals(id)) continue;
+            SetOfPairIdentifiers val = this.getState(key);
+            if (!val.isTop() && !val.isBottom()) {
+                Set<PairIdentifiers> filtered = new HashSet<>();
+                for (PairIdentifiers p : val.elements()) {
+                    if (!p.first().equals(id) && !p.second().equals(id))
+                        filtered.add(p);
+                }
+                ret = ret.putState(key,
+                    new SetOfPairIdentifiers(filtered, filtered.isEmpty()));
             }
-        }*/
+        }
         return ret;
     }
 
@@ -144,9 +186,25 @@ public class LinearInequalitiesAmongThreeVariables
     }
 
     @Override
-    public Satisfiability satisfies(ValueExpression expression, ProgramPoint pp, SemanticOracle oracle) throws SemanticException {
-        if(this.isBottom()) return Satisfiability.BOTTOM;
-        else return Satisfiability.UNKNOWN;
+    public Satisfiability satisfies(ValueExpression expression, ProgramPoint pp, SemanticOracle oracle)
+        throws SemanticException {
+        if (this.isBottom()) return Satisfiability.BOTTOM;
+        if (expression instanceof BinaryExpression cmp
+            && cmp.getOperator() instanceof ComparisonGe
+            && cmp.getLeft() instanceof Identifier x
+            && cmp.getRight() instanceof BinaryExpression sum
+            && sum.getOperator() instanceof AdditionOperator
+            && sum.getLeft() instanceof Identifier y
+            && sum.getRight() instanceof Identifier z) {
+
+            SetOfPairIdentifiers pairs = this.getState(x);
+            if (!pairs.isTop() && !pairs.isBottom()) {
+                PairIdentifiers seeking = new PairIdentifiers(y, z);
+                if (pairs.elements().contains(seeking))
+                    return Satisfiability.SATISFIED;
+            }
+        }
+        return Satisfiability.UNKNOWN;
     }
 
     @Override
