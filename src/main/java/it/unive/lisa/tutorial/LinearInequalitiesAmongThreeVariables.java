@@ -12,7 +12,8 @@ import it.unive.lisa.symbolic.value.BinaryExpression;
 import it.unive.lisa.symbolic.value.Identifier;
 import it.unive.lisa.symbolic.value.ValueExpression;
 import it.unive.lisa.symbolic.value.operator.AdditionOperator;
-import it.unive.lisa.symbolic.value.operator.binary.ComparisonGe;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonGt;
+import it.unive.lisa.symbolic.value.operator.binary.ComparisonGt;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -125,7 +126,7 @@ public class LinearInequalitiesAmongThreeVariables
 
         LinearInequalitiesAmongThreeVariables ret = this;
         if (expression instanceof BinaryExpression cmp) {
-            if (cmp.getOperator() instanceof ComparisonGe &&
+            if (cmp.getOperator() instanceof ComparisonGt &&
                 cmp.getLeft() instanceof Identifier left &&
                 cmp.getRight() instanceof BinaryExpression sum &&
                 sum.getOperator() instanceof AdditionOperator &&
@@ -190,7 +191,7 @@ public class LinearInequalitiesAmongThreeVariables
         throws SemanticException {
         if (this.isBottom()) return Satisfiability.BOTTOM;
         if (expression instanceof BinaryExpression cmp
-            && cmp.getOperator() instanceof ComparisonGe
+            && cmp.getOperator() instanceof ComparisonGt
             && cmp.getLeft() instanceof Identifier x
             && cmp.getRight() instanceof BinaryExpression sum
             && sum.getOperator() instanceof AdditionOperator

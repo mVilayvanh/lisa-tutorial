@@ -4,7 +4,7 @@ class linearinequalities {
 		def i = 1;
 		def y = 1;
         def z = 1;
-        if (i >= y + z) {
+        if (i > y + z) {
             def w = 1;
         } else {
             def w = 0;
@@ -16,8 +16,8 @@ class linearinequalities {
         def b = 1;
         def c = 1;
         def d = 1;
-        if (a >= b + c) {
-            if (a >= c + d) {
+        if (a > b + c) {
+            if (a > c + d) {
                 def w = 1;
             }
         }
@@ -28,7 +28,7 @@ class linearinequalities {
          def b = 1;
          def c = 1;
          def w = 0;
-         if (a >= b + c) {
+         if (a > b + c) {
              w = 1;
          } else {
              w = 2;
@@ -39,7 +39,7 @@ class linearinequalities {
          def a = 1;
          def b = 1;
          def c = 1;
-         if (a >= b + c) {
+         if (a > b + c) {
              b = 2;
          }
      }
@@ -49,8 +49,8 @@ class linearinequalities {
          def b = 1;
          def c = 1;
          def d = 1;
-         if (a >= b + c) {
-             if (b >= c + d) {
+         if (a > b + c) {
+             if (b > c + d) {
                  def w = 1;
              }
          }
