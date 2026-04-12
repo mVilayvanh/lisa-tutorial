@@ -1,7 +1,5 @@
 package it.unive.lisa.tutorial;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 
 import it.unive.lisa.analysis.Lattice;
@@ -33,50 +31,41 @@ import it.unive.lisa.util.representation.StructuredRepresentation;
 /**
  * Domaine d'intervalles circulaires sur les entiers signés 32 bits.
  *
- * <p>
- * Ce domaine modélise les entiers machine avec l'arithmétique modulaire
- * de Java sur les int.
- * </p>
+ * Un élément [low, high] représente :
+ *   - si low <= high : { low, ..., high }
+ *   - si low > high  : { low, ..., MAX } ∪ { MIN, ..., high }
+ *                      (franchissement du bord modulaire, ex: MAX+1 = MIN)
  *
- * <p>
- * Un élément [low, high] est interprété comme :
- * </p>
- * <ul>
- *   <li>un intervalle standard si low &lt;= high</li>
- *   <li>un intervalle circulaire franchissant la borne modulaire si low &gt; high</li>
- * </ul>
+ * TOP    = l'ensemble de tous les entiers 32 bits (flag isTop)
+ * BOTTOM = ensemble vide (flag isBottom)
  *
- * <p>
- * Exemple : [Integer.MAX_VALUE - 1, Integer.MIN_VALUE + 2] est un intervalle
- * circulaire valide.
- * </p>
- *
- * <p>
- * L'implémentation reste volontairement simple. Lorsqu'un résultat arithmétique
- * ne peut pas être représenté de façon sûre et suffisamment simple avec un seul
- * intervalle de ce domaine, le résultat est sur-approché, éventuellement par TOP.
- * </p>
+ * La taille d'un intervalle circulaire est toujours < 2^32.
+ * Toutes les opérations arithmétiques sont modulaires: un dépassement
+ * de Integer.MAX_VALUE revient à Integer.MIN_VALUE, exactement
+ * comme le font les opérations Java sur int.
  */
-public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<IntervalsWithOverflow> {
+public class IntervalsWithOverflow
+    implements BaseNonRelationalValueDomain<IntervalsWithOverflow> {
+
+    private static final int MIN = Integer.MIN_VALUE;
+    private static final int MAX = Integer.MAX_VALUE;
 
     public static final IntervalsWithOverflow TOP =
-            new IntervalsWithOverflow(0, -1, false, true);
-
+        new IntervalsWithOverflow(0, 0, false, true);
     public static final IntervalsWithOverflow BOTTOM =
-            new IntervalsWithOverflow(0, 0, true, false);
-
-    public static final IntervalsWithOverflow ZERO =
-            new IntervalsWithOverflow(0, 0, false, false);
+        new IntervalsWithOverflow(0, 0, true, false);
 
     private final int low;
     private final int high;
     private final boolean isBottom;
     private final boolean isTop;
 
+    /** Constructeur par défaut : TOP (requis par LiSA). */
     public IntervalsWithOverflow() {
-        this(0, -1, false, true);
+        this(0, 0, false, true);
     }
 
+    /** Intervalle normal ou circulaire [low, high]. */
     public IntervalsWithOverflow(int low, int high) {
         this(low, high, false, false);
     }
@@ -88,45 +77,66 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
         this.isTop = isTop;
     }
 
-    public int getLow() {
-        return low;
-    }
-
-    public int getHigh() {
-        return high;
-    }
-
+    /**
+     * Un intervalle est circulaire si low > high.
+     * Il représente [low..MAX] ∪ [MIN..high].
+     */
     public boolean isWrapped() {
         return !isBottom && !isTop && low > high;
     }
 
-    @Override
-    public IntervalsWithOverflow top() {
-        return TOP;
+    private boolean isSingleton() {
+        return !isBottom && !isTop && low == high;
     }
 
-    @Override
-    public IntervalsWithOverflow bottom() {
-        return BOTTOM;
+    /** Taille de l'intervalle sur le cercle Z/2^32Z. */
+    private static long circularSize(IntervalsWithOverflow i) {
+        if (i.isTop)    return 1L << 32;
+        if (i.isBottom) return 0L;
+        if (!i.isWrapped())
+            return (long) i.high - i.low + 1L;
+        // [low..MAX] ∪ [MIN..high]
+        return ((long) MAX - i.low + 1L) + ((long) i.high - MIN + 1L);
     }
 
-    @Override
-    public boolean isTop() {
-        return isTop;
+    /**
+     * Décompose en segments linéaires sur la droite réelle.
+     * Non circulaire → 1 segment. Circulaire → 2 segments.
+     */
+    private static int[][] toSegments(IntervalsWithOverflow i) {
+        if (!i.isWrapped())
+            return new int[][] {{ i.low, i.high }};
+        return new int[][] {{ i.low, MAX }, { MIN, i.high }};
     }
 
-    @Override
-    public boolean isBottom() {
-        return isBottom;
+    /** Vérifie si la valeur concrète v appartient à l'intervalle. */
+    public boolean contains(int v) {
+        if (isBottom) return false;
+        if (isTop)    return true;
+        if (!isWrapped()) return low <= v && v <= high;
+        return v >= low || v <= high; // circulaire
     }
+
+    @Override public IntervalsWithOverflow top()    { return TOP; }
+    @Override public IntervalsWithOverflow bottom() { return BOTTOM; }
+    @Override public boolean isTop()    { return isTop; }
+    @Override public boolean isBottom() { return isBottom; }
 
     @Override
     public StructuredRepresentation representation() {
-        if (isBottom)
-            return Lattice.bottomRepresentation();
-        if (isTop)
-            return Lattice.topRepresentation();
+        if (isBottom) return Lattice.bottomRepresentation();
+        if (isTop)    return Lattice.topRepresentation();
+        if (isWrapped())
+            return new StringRepresentation("[" + low + ", " + high + "]ₒ");
         return new StringRepresentation("[" + low + ", " + high + "]");
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof IntervalsWithOverflow other)) return false;
+        return low == other.low && high == other.high
+            && isBottom == other.isBottom && isTop == other.isTop;
     }
 
     @Override
@@ -135,886 +145,323 @@ public class IntervalsWithOverflow implements BaseNonRelationalValueDomain<Inter
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o)
-            return true;
-        if (!(o instanceof IntervalsWithOverflow))
-            return false;
-        IntervalsWithOverflow other = (IntervalsWithOverflow) o;
-        return low == other.low
-                && high == other.high
-                && isBottom == other.isBottom
-                && isTop == other.isTop;
-    }
-
-    /**
-     * Indique si l'intervalle contient la valeur concrète v.
-     */
-    public boolean contains(int v) {
-        if (isBottom)
-            return false;
-        if (isTop)
-            return true;
-        if (!isWrapped())
-            return low <= v && v <= high;
-        return v >= low || v <= high;
-    }
-
-    /**
-     * Retourne les segments concrets correspondant à cet intervalle
-     * sur la droite signée standard.
-     *
-     * <p>
-     * Un intervalle non circulaire est renvoyé sous la forme d'un seul segment.
-     * Un intervalle circulaire [low, high] est renvoyé sous la forme de deux segments :
-     * [low, Integer.MAX_VALUE] et [Integer.MIN_VALUE, high].
-     * </p>
-     */
-    private List<Segment> toSegments() {
-        List<Segment> result = new ArrayList<>();
-        if (isBottom)
-            return result;
-        if (isTop) {
-            result.add(new Segment(Integer.MIN_VALUE, Integer.MAX_VALUE));
-            return result;
-        }
-
-        if (!isWrapped()) {
-            result.add(new Segment(low, high));
-        } else {
-            result.add(new Segment(low, Integer.MAX_VALUE));
-            result.add(new Segment(Integer.MIN_VALUE, high));
-        }
-        return result;
-    }
-
-    @Override
     public boolean lessOrEqualAux(IntervalsWithOverflow other) throws SemanticException {
-        if (this.isBottom)
-            return true;
-        if (other.isTop)
-            return true;
-        if (other.isBottom)
-            return this.isBottom;
-        if (this.isTop)
-            return other.isTop;
-
-        for (Segment s : this.toSegments()) {
-            for (long v : s.endpointsAsLongs()) {
-                if (!other.contains((int) v))
-                    return false;
-            }
-        }
-
-        if (!this.isWrapped()) {
-            return other.contains(this.low) && other.contains(this.high);
-        }
-
-        return other.contains(this.low)
-                && other.contains(this.high)
-                && other.contains(Integer.MIN_VALUE)
-                && other.contains(Integer.MAX_VALUE);
+        if (!other.contains(this.low) || !other.contains(this.high))
+            return false;
+        if (this.isWrapped())
+            return other.contains(MIN) && other.contains(MAX);
+        return true;
     }
 
     @Override
     public IntervalsWithOverflow lubAux(IntervalsWithOverflow other) throws SemanticException {
-        if (this.isBottom)
-            return other;
-        if (other.isBottom)
-            return this;
-        if (this.isTop || other.isTop)
-            return TOP;
-        if (this.equals(other))
-            return this;
+        if (this.equals(other))      return this;
+        if (other.lessOrEqual(this)) return this;
+        if (this.lessOrEqual(other)) return other;
 
-        if (other.lessOrEqual(this))
-            return this;
+        long[] pts = {
+            toUnsigned(this.low),  toUnsigned(this.high),
+            toUnsigned(other.low), toUnsigned(other.high)
+        };
+        java.util.Arrays.sort(pts);
 
-        if (this.lessOrEqual(other))
-            return other;
+        long bestGap = Long.MIN_VALUE;
+        int gapIdx = 0;
+        for (int i = 0; i < 4; i++) {
+            long cur  = pts[i];
+            long next = pts[(i + 1) % 4];
+            long gap  = (i < 3) ? next - cur : (1L << 32) - cur + next;
+            if (gap > bestGap) { bestGap = gap; gapIdx = i; }
+        }
 
-        List<Integer> points = new ArrayList<>();
-        addBoundaryPoints(points, this);
-        addBoundaryPoints(points, other);
+        int newLow  = fromUnsigned(pts[(gapIdx + 1) % 4]);
+        int newHigh = fromUnsigned(pts[gapIdx]);
 
-        return smallestCoveringInterval(points);
+        IntervalsWithOverflow result = new IntervalsWithOverflow(newLow, newHigh);
+        if (circularSize(result) >= (1L << 32)) return TOP;
+        return result;
     }
 
     @Override
     public IntervalsWithOverflow glbAux(IntervalsWithOverflow other) throws SemanticException {
-        if (this.isBottom || other.isBottom)
-            return BOTTOM;
-        if (this.isTop)
-            return other;
-        if (other.isTop)
-            return this;
+        if (this.equals(other))      return this;
+        if (this.lessOrEqual(other)) return this;
+        if (other.lessOrEqual(this)) return other;
 
-        List<Segment> intersections = new ArrayList<>();
-        for (Segment s1 : this.toSegments()) {
-            for (Segment s2 : other.toSegments()) {
-                Segment inter = s1.intersection(s2);
-                if (inter != null)
-                    intersections.add(inter);
+        int[][] segs1 = toSegments(this);
+        int[][] segs2 = toSegments(other);
+
+        int resLow1 = 0, resHigh1 = -1;
+        int resLow2 = 0, resHigh2 = -1;
+        int count = 0;
+
+        for (int[] s1 : segs1) {
+            for (int[] s2 : segs2) {
+                int l = Math.max(s1[0], s2[0]);
+                int h = Math.min(s1[1], s2[1]);
+                if (l <= h) {
+                    if (count == 0) { resLow1 = l; resHigh1 = h; }
+                    else            { resLow2 = l; resHigh2 = h; }
+                    count++;
+                }
             }
         }
 
-        if (intersections.isEmpty())
-            return BOTTOM;
+        if (count == 0) return BOTTOM;
+        if (count == 1) return new IntervalsWithOverflow(resLow1, resHigh1);
 
-        List<Segment> merged = mergeSegments(intersections);
-
-        if (merged.size() == 1) {
-            Segment s = merged.get(0);
-            return new IntervalsWithOverflow(s.low, s.high);
-        }
-
-        if (merged.size() == 2) {
-            Segment first = merged.get(0);
-            Segment second = merged.get(1);
-
-            if (first.low == Integer.MIN_VALUE && second.high == Integer.MAX_VALUE) {
-                return new IntervalsWithOverflow(second.low, first.high);
-            }
-        }
-
-        return TOP;
+        int circLow  = (resLow1 > resLow2)   ? resLow1  : resLow2;
+        int circHigh = (resHigh1 < resHigh2) ? resHigh1 : resHigh2;
+        return new IntervalsWithOverflow(circLow, circHigh);
     }
 
     @Override
     public IntervalsWithOverflow wideningAux(IntervalsWithOverflow other) throws SemanticException {
-        if (this.isBottom)
-            return other;
-        if (other.isBottom)
-            return this;
-        if (this.isTop || other.isTop)
-            return TOP;
+        if (other.lessOrEqual(this)) return this;
 
-        if (other.lessOrEqual(this))
-            return this;
-
-        if (this.equals(other))
-            return this;
-
-        if (this.isWrapped() || other.isWrapped())
-            return TOP;
-
-        int newLow = this.low;
-        int newHigh = this.high;
-
-        if (other.low < this.low)
-            newLow = Integer.MIN_VALUE;
-
-        if (other.high > this.high) {
-            long growth = (long) other.high - this.high;
-
-            if (growth <= 1L)
-                newHigh = other.high;
-            else
-                newHigh = Integer.MAX_VALUE;
+        if (this.isWrapped() && other.isWrapped()) {
+            // Pour [low..MAX] ∪ [MIN..high] :
+            //   - le segment haut déborde par la gauche si other.low < this.low → élargir vers MIN
+            //   - le segment bas déborde par la droite si other.high > this.high → élargir vers MAX
+            int newLow  = (other.low  < this.low)  ? MIN : this.low;
+            int newHigh = (other.high > this.high) ? MAX : this.high;
+            if (newLow == MIN && newHigh == MAX) return TOP;
+            return new IntervalsWithOverflow(newLow, newHigh);
         }
 
-        if (newLow == Integer.MIN_VALUE && newHigh == Integer.MAX_VALUE)
-            return TOP;
+        if (this.isWrapped() || other.isWrapped()) return TOP;
 
+        // Cas standard non circulaire (inchangé)
+        int newLow  = (other.low  < this.low)  ? MIN : this.low;
+        int newHigh = (other.high > this.high) ? MAX : this.high;
+        if (newLow == MIN && newHigh == MAX) return TOP;
         return new IntervalsWithOverflow(newLow, newHigh);
     }
 
     @Override
     public IntervalsWithOverflow evalNonNullConstant(
-            Constant constant,
-            ProgramPoint pp,
-            SemanticOracle oracle) {
-
-        if (constant.getValue() instanceof Integer) {
-            int v = (Integer) constant.getValue();
+        Constant constant, ProgramPoint pp, SemanticOracle oracle) {
+        if (constant.getValue() instanceof Integer v)
             return new IntervalsWithOverflow(v, v);
-        }
-
         return TOP;
     }
 
     @Override
     public IntervalsWithOverflow evalUnaryExpression(
-            UnaryOperator operator,
-            IntervalsWithOverflow arg,
-            ProgramPoint pp,
-            SemanticOracle oracle) {
+        UnaryOperator operator, IntervalsWithOverflow arg,
+        ProgramPoint pp, SemanticOracle oracle) {
 
-        if (arg.isBottom)
-            return BOTTOM;
-        if (arg.isTop)
-            return TOP;
-
-        if (operator == NumericNegation.INSTANCE) {
-            return mapUnary(arg, v -> -v);
+        if (operator instanceof NumericNegation) {
+            // -MIN = MIN (overflow), donc si MIN ∈ arg → TOP conservatif
+            if (arg.contains(MIN)) return TOP;
+            return new IntervalsWithOverflow(-arg.high, -arg.low);
         }
-
         return TOP;
     }
 
     @Override
     public IntervalsWithOverflow evalBinaryExpression(
-            BinaryOperator operator,
-            IntervalsWithOverflow left,
-            IntervalsWithOverflow right,
-            ProgramPoint pp,
-            SemanticOracle oracle) {
+        BinaryOperator operator,
+        IntervalsWithOverflow left, IntervalsWithOverflow right,
+        ProgramPoint pp, SemanticOracle oracle) {
 
-        if (left.isBottom || right.isBottom)
-            return BOTTOM;
-        if (left.isTop || right.isTop)
-            return TOP;
-
-        if (operator instanceof AdditionOperator) {
-            return mapBinary(left, right, (a, b) -> a + b);
-        } else if (operator instanceof SubtractionOperator) {
-            return mapBinary(left, right, (a, b) -> a - b);
-        } else if (operator instanceof MultiplicationOperator) {
-            return evalMultiplicationSound(left, right);
-        } else if (operator instanceof DivisionOperator) {
-            return evalDivisionSound(left, right);
-        }
-
+        if (operator instanceof AdditionOperator)       return add(left, right);
+        if (operator instanceof SubtractionOperator)    return sub(left, right);
+        if (operator instanceof MultiplicationOperator) return mul(left, right);
+        if (operator instanceof DivisionOperator)       return div(left, right);
         return TOP;
     }
 
     /**
-     * Évalue la satisfiabilité d'opérateurs de comparaison.
+     * [a,b] + [c,d] = [a+c, b+d] (mod 2^32).
      *
-     * <p>
-     * Cette implémentation reste volontairement conservative. L'égalité et la
-     * différence sont traitées via l'intersection. Les comparaisons d'ordre sont
-     * traitées précisément uniquement pour des intervalles non circulaires ; dans
-     * les autres cas, le résultat est UNKNOWN.
-     * </p>
+     * La taille du résultat est size(l) + size(r) - 1 (les bornes se chevauchent
+     * d'une valeur). Si elle atteint 2^32, l'intervalle couvre tout le cercle → TOP.
+     * L'addition Java sur int est déjà modulaire : l'overflow est intentionnel.
      */
+    private static IntervalsWithOverflow add(IntervalsWithOverflow l, IntervalsWithOverflow r) {
+        // size(l) + size(r) - 1 >= 2^32  ⟺  le résultat couvre tout Z/2^32Z
+        if (circularSize(l) + circularSize(r) - 1 >= (1L << 32)) return TOP;
+        // Overflow Java intentionnel : arithmétique modulaire mod 2^32
+        return new IntervalsWithOverflow(l.low + r.low, l.high + r.high);
+    }
+
+    /**
+     * [a,b] - [c,d] = [a-d, b-c] (mod 2^32).
+     *
+     * Même raisonnement que l'addition : la soustraction par un intervalle de
+     * taille k élargit le résultat de k-1 valeurs supplémentaires.
+     */
+    private static IntervalsWithOverflow sub(IntervalsWithOverflow l, IntervalsWithOverflow r) {
+        if (circularSize(l) + circularSize(r) - 1 >= (1L << 32)) return TOP;
+        // [a,b] - [c,d] = [a-d, b-c]  (overflow Java intentionnel)
+        return new IntervalsWithOverflow(l.low - r.high, l.high - r.low);
+    }
+
+    /**
+     * Multiplication : précise uniquement pour intervalles non circulaires
+     * sans overflow long → int. TOP sinon.
+     */
+    private static IntervalsWithOverflow mul(IntervalsWithOverflow l, IntervalsWithOverflow r) {
+        if (l.isWrapped() || r.isWrapped()) return TOP;
+
+        long[] cands = {
+            (long) l.low * r.low,  (long) l.low * r.high,
+            (long) l.high * r.low, (long) l.high * r.high
+        };
+        long min = cands[0], max = cands[0];
+        for (long c : cands) { min = Math.min(min, c); max = Math.max(max, c); }
+
+        if (min < MIN || max > MAX) return TOP;
+        return new IntervalsWithOverflow((int) min, (int) max);
+    }
+
+    /**
+     * Division entière : précise pour intervalles non circulaires
+     * sans diviseur zéro et sans le cas MIN/-1. TOP sinon.
+     */
+    private static IntervalsWithOverflow div(IntervalsWithOverflow l, IntervalsWithOverflow r) {
+        if (r.contains(0) || l.isWrapped() || r.isWrapped()) return TOP;
+        if (l.contains(MIN) && r.contains(-1)) return TOP; // MIN / -1 overflow
+
+        int[] cands = {
+            l.low / r.low,  l.low / r.high,
+            l.high / r.low, l.high / r.high
+        };
+        int min = cands[0], max = cands[0];
+        for (int c : cands) { min = Math.min(min, c); max = Math.max(max, c); }
+        return new IntervalsWithOverflow(min, max);
+    }
+
     @Override
     public Satisfiability satisfiesBinaryExpression(
-            BinaryOperator operator,
-            IntervalsWithOverflow left,
-            IntervalsWithOverflow right,
-            ProgramPoint pp,
-            SemanticOracle oracle) {
+        BinaryOperator operator,
+        IntervalsWithOverflow left, IntervalsWithOverflow right,
+        ProgramPoint pp, SemanticOracle oracle) {
 
-        if (left.isBottom() || right.isBottom())
-            return Satisfiability.NOT_SATISFIED;
-
-        if (left.isTop() || right.isTop())
-            return Satisfiability.UNKNOWN;
-
-        if (operator == ComparisonEq.INSTANCE) {
-            try {
-                IntervalsWithOverflow inter = left.glb(right);
-                if (inter.isBottom())
-                    return Satisfiability.NOT_SATISFIED;
-
-                if (left.isSingleton() && right.isSingleton()
-                        && left.getLow() == right.getLow())
+        try {
+            if (operator == ComparisonEq.INSTANCE) {
+                if (left.glb(right).isBottom()) return Satisfiability.NOT_SATISFIED;
+                if (left.isSingleton() && right.isSingleton() && left.low == right.low)
                     return Satisfiability.SATISFIED;
-
-                return Satisfiability.UNKNOWN;
-            } catch (SemanticException e) {
                 return Satisfiability.UNKNOWN;
             }
-        }
 
-        if (operator == ComparisonNe.INSTANCE) {
-            try {
-                IntervalsWithOverflow inter = left.glb(right);
-                if (inter.isBottom())
-                    return Satisfiability.SATISFIED;
-
-                if (left.isSingleton() && right.isSingleton()
-                        && left.getLow() == right.getLow())
+            if (operator == ComparisonNe.INSTANCE) {
+                if (left.glb(right).isBottom()) return Satisfiability.SATISFIED;
+                if (left.isSingleton() && right.isSingleton() && left.low == right.low)
                     return Satisfiability.NOT_SATISFIED;
-
-                return Satisfiability.UNKNOWN;
-            } catch (SemanticException e) {
                 return Satisfiability.UNKNOWN;
             }
-        }
 
-        if (operator == ComparisonGe.INSTANCE)
-            return satisfiesBinaryExpression(ComparisonLe.INSTANCE, right, left, pp, oracle);
-
-        if (operator == ComparisonGt.INSTANCE)
-            return satisfiesBinaryExpression(ComparisonLt.INSTANCE, right, left, pp, oracle);
-
-        if (operator == ComparisonLe.INSTANCE) {
             if (!left.isWrapped() && !right.isWrapped()) {
-                if (left.getHigh() <= right.getLow())
-                    return Satisfiability.SATISFIED;
-                if (left.getLow() > right.getHigh())
-                    return Satisfiability.NOT_SATISFIED;
+                if (operator == ComparisonLe.INSTANCE) {
+                    if (left.high <= right.low)  return Satisfiability.SATISFIED;
+                    if (left.low  >  right.high) return Satisfiability.NOT_SATISFIED;
+                }
+                if (operator == ComparisonLt.INSTANCE) {
+                    if (left.high <  right.low)  return Satisfiability.SATISFIED;
+                    if (left.low  >= right.high) return Satisfiability.NOT_SATISFIED;
+                }
+                if (operator == ComparisonGe.INSTANCE) {
+                    if (left.low  >= right.high) return Satisfiability.SATISFIED;
+                    if (left.high <  right.low)  return Satisfiability.NOT_SATISFIED;
+                }
+                if (operator == ComparisonGt.INSTANCE) {
+                    if (left.low  >  right.high) return Satisfiability.SATISFIED;
+                    if (left.high <= right.low)  return Satisfiability.NOT_SATISFIED;
+                }
             }
-            return Satisfiability.UNKNOWN;
-        }
-
-        if (operator == ComparisonLt.INSTANCE) {
-            if (!left.isWrapped() && !right.isWrapped()) {
-                if (left.getHigh() < right.getLow())
-                    return Satisfiability.SATISFIED;
-                if (left.getLow() >= right.getHigh())
-                    return Satisfiability.NOT_SATISFIED;
-            }
-            return Satisfiability.UNKNOWN;
-        }
+        } catch (SemanticException e) { /* conservatif */ }
 
         return Satisfiability.UNKNOWN;
     }
 
-    /**
-     * Raffine l'environnement après l'hypothèse d'une comparaison sur une variable.
-     *
-     * <p>
-     * Le raffinement reste conservatif. L'égalité est traitée par intersection.
-     * Les comparaisons d'ordre ne sont raffinées que contre des bornes non
-     * circulaires ; sinon, aucun raffinement n'est effectué.
-     * </p>
-     */
     @Override
     public ValueEnvironment<IntervalsWithOverflow> assumeBinaryExpression(
-            ValueEnvironment<IntervalsWithOverflow> environment,
-            BinaryOperator operator,
-            ValueExpression left,
-            ValueExpression right,
-            ProgramPoint src,
-            ProgramPoint dest,
-            SemanticOracle oracle)
-            throws SemanticException {
+        ValueEnvironment<IntervalsWithOverflow> environment,
+        BinaryOperator operator,
+        ValueExpression left, ValueExpression right,
+        ProgramPoint src, ProgramPoint dest,
+        SemanticOracle oracle) throws SemanticException {
 
         Identifier id;
         IntervalsWithOverflow eval;
         boolean idIsLeft;
 
-        if (left instanceof Identifier) {
-            id = (Identifier) left;
+        if (left instanceof Identifier lid) {
+            id = lid;
             eval = eval(right, environment, src, oracle);
             idIsLeft = true;
-        } else if (right instanceof Identifier) {
-            id = (Identifier) right;
+        } else if (right instanceof Identifier rid) {
+            id = rid;
             eval = eval(left, environment, src, oracle);
             idIsLeft = false;
         } else {
             return environment;
         }
 
-        IntervalsWithOverflow starting = environment.getState(id);
+        if (eval.isBottom()) return environment.bottom();
 
-        if (starting.isBottom() || eval.isBottom())
-            return environment.bottom();
+        IntervalsWithOverflow current = environment.getState(id);
+        if (current.isBottom()) return environment.bottom();
 
-        IntervalsWithOverflow update = refineByComparison(starting, operator, eval, idIsLeft);
+        IntervalsWithOverflow refined = refine(current, operator, eval, idIsLeft);
+        if (refined == null)    return environment;
+        if (refined.isBottom()) return environment.bottom();
 
-        if (update == null)
-            return environment;
-
-        if (update.isBottom())
-            return environment.bottom();
-
-        return environment.putState(id, update);
+        return environment.putState(id, refined);
     }
 
-    /**
-     * Applique un opérateur unaire à des points représentatifs et reconstruit
-     * une sur-approximation sûre dans le domaine.
-     */
-    private static IntervalsWithOverflow mapUnary(
-            IntervalsWithOverflow arg,
-            IntUnaryModOperator op) {
-
-        List<Integer> images = new ArrayList<>();
-        for (int p : representativePoints(arg)) {
-            images.add(op.apply(p));
-        }
-        return fromPoints(images);
-    }
-
-    /**
-     * Applique un opérateur binaire modulaire à des points représentatifs et
-     * reconstruit une sur-approximation dans le domaine.
-     *
-     * <p>
-     * Cette fonction est conservée pour les opérateurs déjà traités de cette
-     * manière dans cette version du code.
-     * </p>
-     */
-    private static IntervalsWithOverflow mapBinary(
-            IntervalsWithOverflow left,
-            IntervalsWithOverflow right,
-            IntBinaryModOperator op) {
-
-        List<Integer> images = new ArrayList<>();
-        for (int a : representativePoints(left)) {
-            for (int b : representativePoints(right)) {
-                images.add(op.apply(a, b));
-            }
-        }
-        return fromPoints(images);
-    }
-
-    /**
-     * Multiplication sûre.
-     *
-     * <p>
-     * Cas traités précisément :
-     * </p>
-     * <ul>
-     *   <li>deux singletons</li>
-     *   <li>deux intervalles non circulaires si aucun produit d'extrémités ne
-     *       déborde hors de l'intervalle des int</li>
-     * </ul>
-     *
-     * <p>
-     * Tous les autres cas sont sur-approchés par TOP afin de préserver la sûreté.
-     * </p>
-     */
-    private static IntervalsWithOverflow evalMultiplicationSound(
-            IntervalsWithOverflow left,
-            IntervalsWithOverflow right) {
-
-        if (left.isSingleton() && right.isSingleton()) {
-            int v = left.low * right.low;
-            return new IntervalsWithOverflow(v, v);
-        }
-
-        if (left.isWrapped() || right.isWrapped())
-            return TOP;
-
-        long[] candidates = new long[] {
-                (long) left.low * (long) right.low,
-                (long) left.low * (long) right.high,
-                (long) left.high * (long) right.low,
-                (long) left.high * (long) right.high
-        };
-
-        for (long c : candidates) {
-            if (c < Integer.MIN_VALUE || c > Integer.MAX_VALUE)
-                return TOP;
-        }
-
-        long min = candidates[0];
-        long max = candidates[0];
-        for (int i = 1; i < candidates.length; i++) {
-            min = Math.min(min, candidates[i]);
-            max = Math.max(max, candidates[i]);
-        }
-
-        return new IntervalsWithOverflow((int) min, (int) max);
-    }
-
-    /**
-     * Division sûre.
-     *
-     * <p>
-     * Cas traités précisément :
-     * </p>
-     * <ul>
-     *   <li>deux singletons avec diviseur non nul</li>
-     *   <li>deux intervalles non circulaires, diviseur strictement positif ou
-     *       strictement négatif, et sans risque du cas particulier
-     *       Integer.MIN_VALUE / -1</li>
-     * </ul>
-     *
-     * <p>
-     * Si le diviseur peut contenir 0, ou si la situation est plus complexe,
-     * on renvoie TOP par sûreté.
-     * </p>
-     */
-    private static IntervalsWithOverflow evalDivisionSound(
-            IntervalsWithOverflow left,
-            IntervalsWithOverflow right) {
-
-        if (right.contains(0))
-            return TOP;
-
-        if (left.isSingleton() && right.isSingleton()) {
-            int v = left.low / right.low;
-            return new IntervalsWithOverflow(v, v);
-        }
-
-        if (left.isWrapped() || right.isWrapped())
-            return TOP;
-
-        boolean rightStrictlyPositive = right.low > 0;
-        boolean rightStrictlyNegative = right.high < 0;
-
-        if (!rightStrictlyPositive && !rightStrictlyNegative)
-            return TOP;
-
-        if (left.contains(Integer.MIN_VALUE) && right.contains(-1))
-            return TOP;
-
-        int[] candidates = new int[] {
-                left.low / right.low,
-                left.low / right.high,
-                left.high / right.low,
-                left.high / right.high
-        };
-
-        int min = candidates[0];
-        int max = candidates[0];
-        for (int i = 1; i < candidates.length; i++) {
-            min = Math.min(min, candidates[i]);
-            max = Math.max(max, candidates[i]);
-        }
-
-        return new IntervalsWithOverflow(min, max);
-    }
-
-    /**
-     * Retourne des points représentatifs utilisés pour construire une
-     * approximation grossière.
-     *
-     * <p>
-     * Pour un intervalle standard : les bornes.
-     * Pour un intervalle circulaire : low, high, MIN_VALUE et MAX_VALUE.
-     * </p>
-     */
-    private static List<Integer> representativePoints(IntervalsWithOverflow i) {
-        List<Integer> pts = new ArrayList<>();
-        if (i.isBottom)
-            return pts;
-        if (i.isTop) {
-            pts.add(Integer.MIN_VALUE);
-            pts.add(Integer.MAX_VALUE);
-            pts.add(0);
-            return pts;
-        }
-
-        pts.add(i.low);
-        pts.add(i.high);
-
-        if (i.isWrapped()) {
-            pts.add(Integer.MIN_VALUE);
-            pts.add(Integer.MAX_VALUE);
-        }
-
-        return dedup(pts);
-    }
-
-    /**
-     * Construit le plus petit intervalle standard ou circulaire couvrant les
-     * points donnés. Si aucune représentation simple n'est clairement meilleure
-     * que TOP, on renvoie la meilleure approximation construite à partir des
-     * points observés.
-     */
-    private static IntervalsWithOverflow fromPoints(List<Integer> points) {
-        points = dedup(points);
-
-        if (points.isEmpty())
-            return BOTTOM;
-        if (points.size() == 1) {
-            int v = points.get(0);
-            return new IntervalsWithOverflow(v, v);
-        }
-
-        Segment hull = lineHull(points);
-
-        int circularGapStart = 0;
-        long bestGap = Long.MIN_VALUE;
-
-        List<Long> ordered = new ArrayList<>();
-        for (int p : points)
-            ordered.add(unsignedKey(p));
-        ordered.sort(Long::compare);
-
-        for (int i = 0; i < ordered.size(); i++) {
-            long cur = ordered.get(i);
-            long next = ordered.get((i + 1) % ordered.size());
-            long gap = (i + 1 < ordered.size())
-                    ? next - cur
-                    : (1L << 32) - cur + next;
-
-            if (gap > bestGap) {
-                bestGap = gap;
-                circularGapStart = i;
-            }
-        }
-
-        long start = ordered.get((circularGapStart + 1) % ordered.size());
-        long end = ordered.get(circularGapStart);
-
-        int wrappedLow = fromUnsignedKey(start);
-        int wrappedHigh = fromUnsignedKey(end);
-
-        IntervalsWithOverflow wrapped = new IntervalsWithOverflow(wrappedLow, wrappedHigh);
-        IntervalsWithOverflow standard = new IntervalsWithOverflow(hull.low, hull.high);
-
-        for (int p : points) {
-            if (!wrapped.contains(p))
-                return standard;
-        }
-
-        long stdSize = hull.size();
-        long wrapSize = wrappedApproxSize(wrapped);
-
-        if (wrapSize < stdSize)
-            return wrapped;
-        return standard;
-    }
-
-    /**
-     * Ajoute les points de frontière caractérisant un intervalle.
-     */
-    private static void addBoundaryPoints(List<Integer> points, IntervalsWithOverflow i) {
-        if (i.isBottom || i.isTop)
-            return;
-
-        points.add(i.low);
-        points.add(i.high);
-
-        if (i.isWrapped()) {
-            points.add(Integer.MIN_VALUE);
-            points.add(Integer.MAX_VALUE);
-        }
-    }
-
-    /**
-     * Construit le plus petit intervalle standard ou circulaire couvrant les
-     * points donnés sur le cercle modulaire 32 bits.
-     */
-    private static IntervalsWithOverflow smallestCoveringInterval(List<Integer> points) {
-        points = dedup(points);
-
-        if (points.isEmpty())
-            return BOTTOM;
-
-        if (points.size() == 1) {
-            int v = points.get(0);
-            return new IntervalsWithOverflow(v, v);
-        }
-
-        List<Long> ordered = new ArrayList<>();
-        for (int p : points)
-            ordered.add(unsignedKey(p));
-        ordered.sort(Long::compare);
-
-        long bestGap = Long.MIN_VALUE;
-        int gapIndex = -1;
-
-        for (int i = 0; i < ordered.size(); i++) {
-            long cur = ordered.get(i);
-            long next = ordered.get((i + 1) % ordered.size());
-            long gap = (i + 1 < ordered.size())
-                    ? next - cur
-                    : (1L << 32) - cur + next;
-
-            if (gap > bestGap) {
-                bestGap = gap;
-                gapIndex = i;
-            }
-        }
-
-        long start = ordered.get((gapIndex + 1) % ordered.size());
-        long end = ordered.get(gapIndex);
-
-        int newLow = fromUnsignedKey(start);
-        int newHigh = fromUnsignedKey(end);
-
-        return new IntervalsWithOverflow(newLow, newHigh);
-    }
-
-    private static long wrappedApproxSize(IntervalsWithOverflow i) {
-        if (i.isTop)
-            return 1L << 32;
-        if (i.isBottom)
-            return 0;
-        if (!i.isWrapped())
-            return (long) i.high - i.low + 1L;
-
-        long highPart = (long) Integer.MAX_VALUE - i.low + 1L;
-        long lowPart = (long) i.high - Integer.MIN_VALUE + 1L;
-        return highPart + lowPart;
-    }
-
-    private static Segment lineHull(List<Integer> points) {
-        int min = Integer.MAX_VALUE;
-        int max = Integer.MIN_VALUE;
-        for (int p : points) {
-            min = Math.min(min, p);
-            max = Math.max(max, p);
-        }
-        return new Segment(min, max);
-    }
-
-    private static List<Integer> dedup(List<Integer> input) {
-        List<Integer> out = new ArrayList<>();
-        for (int x : input) {
-            if (!out.contains(x))
-                out.add(x);
-        }
-        return out;
-    }
-
-    private static List<Segment> mergeSegments(List<Segment> segments) {
-        if (segments.isEmpty())
-            return segments;
-
-        segments.sort((a, b) -> {
-            int c = Integer.compare(a.low, b.low);
-            if (c != 0)
-                return c;
-            return Integer.compare(a.high, b.high);
-        });
-
-        List<Segment> merged = new ArrayList<>();
-        Segment cur = segments.get(0);
-
-        for (int i = 1; i < segments.size(); i++) {
-            Segment next = segments.get(i);
-            if ((long) next.low <= (long) cur.high + 1L) {
-                cur = new Segment(cur.low, Math.max(cur.high, next.high));
-            } else {
-                merged.add(cur);
-                cur = next;
-            }
-        }
-
-        merged.add(cur);
-        return merged;
-    }
-
-    /**
-     * Indique si la valeur abstraite est un singleton [v, v].
-     */
-    private boolean isSingleton() {
-        return !isBottom && !isTop && low == high;
-    }
-
-    /**
-     * Incrémente prudemment un entier machine sans sortir de l'intervalle int.
-     */
-    private static int safeIncrement(int x) {
-        return x == Integer.MAX_VALUE ? Integer.MAX_VALUE : x + 1;
-    }
-
-    /**
-     * Décrémente prudemment un entier machine sans sortir de l'intervalle int.
-     */
-    private static int safeDecrement(int x) {
-        return x == Integer.MIN_VALUE ? Integer.MIN_VALUE : x - 1;
-    }
-
-    /**
-     * Calcule un raffinement conservatif de {@code starting} après une hypothèse
-     * de comparaison contre {@code eval}.
-     *
-     * <p>
-     * Le raffinement n'est réalisé que lorsqu'il peut être exprimé de manière
-     * sûre dans l'abstraction courante. Les bornes circulaires sont ignorées de
-     * manière conservative.
-     * </p>
-     */
-    private static IntervalsWithOverflow refineByComparison(
-            IntervalsWithOverflow starting,
-            BinaryOperator operator,
-            IntervalsWithOverflow eval,
-            boolean idIsLeft)
-            throws SemanticException {
-
-        if (starting.isTop() && eval.isTop())
-            return null;
-
-        if (operator == ComparisonEq.INSTANCE) {
-            return starting.glb(eval);
-        }
-
-        if (operator == ComparisonNe.INSTANCE) {
-            if (starting.isSingleton() && eval.isSingleton()
-                    && starting.getLow() == eval.getLow())
+    private IntervalsWithOverflow refine(
+        IntervalsWithOverflow current,
+        BinaryOperator op,
+        IntervalsWithOverflow eval,
+        boolean idIsLeft) throws SemanticException {
+
+        if (op == ComparisonEq.INSTANCE)
+            return current.glb(eval);
+
+        if (op == ComparisonNe.INSTANCE) {
+            if (current.isSingleton() && eval.isSingleton() && current.low == eval.low)
                 return BOTTOM;
-
             return null;
         }
 
-        if (operator == ComparisonGe.INSTANCE) {
-            return refineByComparison(starting, ComparisonLe.INSTANCE, eval, !idIsLeft);
+        if (op == ComparisonGe.INSTANCE)
+            return refine(current, ComparisonLe.INSTANCE, eval, !idIsLeft);
+        if (op == ComparisonGt.INSTANCE)
+            return refine(current, ComparisonLt.INSTANCE, eval, !idIsLeft);
+
+        if (eval.isWrapped()) return null;
+
+        if (op == ComparisonLe.INSTANCE) {
+            IntervalsWithOverflow bound = idIsLeft
+                ? new IntervalsWithOverflow(MIN, eval.high)
+                : new IntervalsWithOverflow(eval.low, MAX);
+            return current.glb(bound);
         }
 
-        if (operator == ComparisonGt.INSTANCE) {
-            return refineByComparison(starting, ComparisonLt.INSTANCE, eval, !idIsLeft);
-        }
-
-        if (eval.isWrapped()) {
-            return null;
-        }
-
-        if (operator == ComparisonLe.INSTANCE) {
+        if (op == ComparisonLt.INSTANCE) {
             if (idIsLeft) {
-                IntervalsWithOverflow bound =
-                        new IntervalsWithOverflow(Integer.MIN_VALUE, eval.getHigh());
-                return starting.glb(bound);
+                if (eval.low == MIN) return BOTTOM;
+                return current.glb(new IntervalsWithOverflow(MIN, eval.low - 1));
             } else {
-                IntervalsWithOverflow bound =
-                        new IntervalsWithOverflow(eval.getLow(), Integer.MAX_VALUE);
-                return starting.glb(bound);
-            }
-        }
-
-        if (operator == ComparisonLt.INSTANCE) {
-            if (idIsLeft) {
-                if (eval.getHigh() == Integer.MIN_VALUE)
-                    return BOTTOM;
-
-                IntervalsWithOverflow bound =
-                        new IntervalsWithOverflow(Integer.MIN_VALUE, safeDecrement(eval.getHigh()));
-                return starting.glb(bound);
-            } else {
-                if (eval.getLow() == Integer.MAX_VALUE)
-                    return BOTTOM;
-
-                IntervalsWithOverflow bound =
-                        new IntervalsWithOverflow(safeIncrement(eval.getLow()), Integer.MAX_VALUE);
-                return starting.glb(bound);
+                if (eval.high == MAX) return BOTTOM;
+                return current.glb(new IntervalsWithOverflow(eval.high + 1, MAX));
             }
         }
 
         return null;
     }
 
-    private static long unsignedKey(int x) {
+    /** Convertit un int signé en long non signé pour trier sur le cercle. */
+    private static long toUnsigned(int x) {
         return Integer.toUnsignedLong(x);
     }
 
-    private static int fromUnsignedKey(long x) {
+    /** Reconvertit un long non signé en int signé. */
+    private static int fromUnsigned(long x) {
         return (int) x;
-    }
-
-    private interface IntUnaryModOperator {
-        int apply(int x);
-    }
-
-    private interface IntBinaryModOperator {
-        int apply(int x, int y);
-    }
-
-    private static final class Segment {
-        private final int low;
-        private final int high;
-
-        private Segment(int low, int high) {
-            this.low = low;
-            this.high = high;
-        }
-
-        private Segment intersection(Segment other) {
-            int l = Math.max(this.low, other.low);
-            int h = Math.min(this.high, other.high);
-            if (l > h)
-                return null;
-            return new Segment(l, h);
-        }
-
-        private List<Long> endpointsAsLongs() {
-            List<Long> pts = new ArrayList<>();
-            pts.add((long) low);
-            pts.add((long) high);
-            return pts;
-        }
-
-        private long size() {
-            return (long) high - low + 1L;
-        }
     }
 }
