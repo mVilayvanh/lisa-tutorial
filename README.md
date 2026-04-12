@@ -13,9 +13,9 @@ L’objectif du projet est d’implémenter :
 
 En suivant les spécifications du dépôt LiSA tutorial (`tas2026`), notre groupe a choisi les deux domaines suivants :
 
-- **Non relationnel : intervalles avec prise en compte des overflows**
+- **Non relationnel : intervalles avec prise en compte des overflows** (par Liu)
   - Difficulté : **4**
-- **Relationnel : inégalités linéaires entre trois variables**
+- **Relationnel : inégalités linéaires entre trois variables**         (par Mickael)
   - Difficulté : **3**
 
 La difficulté totale est donc de **7**, ce qui respecte les contraintes du projet.
