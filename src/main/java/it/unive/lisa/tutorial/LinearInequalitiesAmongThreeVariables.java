@@ -20,6 +20,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
+/**
+ * Classe pour le domaine relationnel des inéquations linéaires parmi 3 variables.
+ *
+ * On se restreint à l'inégalité greater than car le travail est le même pour les autres opérateurs
+ * si on devait les définir.
+ *
+ * Donc cela décrira uniquement les relations tel que
+ * x, y, z des variables dans l'environnement tel que x > y + z
+ *
+ */
 public class LinearInequalitiesAmongThreeVariables
     extends FunctionalLattice<LinearInequalitiesAmongThreeVariables, Identifier, LinearInequalitiesAmongThreeVariables.SetOfPairIdentifiers>
     implements ValueDomain<LinearInequalitiesAmongThreeVariables> {
@@ -79,6 +89,7 @@ public class LinearInequalitiesAmongThreeVariables
         Set<Identifier> allKeys = new HashSet<>();
         if (this.function != null) allKeys.addAll(this.function.keySet());
         if (other.function != null) allKeys.addAll(other.function.keySet());
+        // On merge les environnements ensembles pour obtenir un environnement plus grand
         for (Identifier id : allKeys) {
             SetOfPairIdentifiers thisVal = this.getState(id);
             SetOfPairIdentifiers otherVal = other.getState(id);
@@ -124,6 +135,11 @@ public class LinearInequalitiesAmongThreeVariables
         SemanticOracle oracle) throws SemanticException {
 
         LinearInequalitiesAmongThreeVariables ret = this;
+        // C'est ici qu'il aurait fallu ajouter pour cmp.getOperator les ComparisonGe etc pour inclure
+        // les autres opérateurs dans l'environnement. Pour faire plus simple
+        // On se restreint à uniquement un seul mais cela revient au même.
+        // On aurait juste plus d'environnement possiblement lié à des paires par if ou while si la condition
+        // est ==, !=, >= etc...
         if (expression instanceof BinaryExpression cmp) {
             if (cmp.getOperator() instanceof ComparisonGt &&
                 cmp.getLeft() instanceof Identifier left &&
@@ -133,6 +149,7 @@ public class LinearInequalitiesAmongThreeVariables
                 sum.getRight() instanceof Identifier z) {
                 PairIdentifiers pair = new PairIdentifiers(y, z);
                 SetOfPairIdentifiers value = ret.getState(left);
+                // Si c'est top, l'ensemble contient une paire fictive. Cela sera vide donc TOP
                 if (value.isTop())
                     value = new SetOfPairIdentifiers(Collections.singleton(pair), true);
                 else {
@@ -217,6 +234,11 @@ public class LinearInequalitiesAmongThreeVariables
         return this;
     }
 
+    /**
+     * Record permettant de créer des pairs de variables
+     * @param first variable de l'environnement
+     * @param second variable de l'environnement
+     */
     public record PairIdentifiers(Identifier first, Identifier second) {
 
         @Override
@@ -236,6 +258,10 @@ public class LinearInequalitiesAmongThreeVariables
         }
     }
 
+    /**
+     * Classe inspiré du set d'identifiant vu en TME, à la différence qu'on
+     * bind un identifiant à un couple d'identifiant
+     */
     public static class SetOfPairIdentifiers
         extends InverseSetLattice<SetOfPairIdentifiers, PairIdentifiers> {
 

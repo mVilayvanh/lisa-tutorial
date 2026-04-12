@@ -20,6 +20,28 @@ En suivant les spécifications du dépôt LiSA tutorial (`tas2026`), notre group
 
 La difficulté totale est donc de **7**, ce qui respecte les contraintes du projet.
 
+Les fichiers écrits sont les suivant:
+
+Classes:
+
+[IntervalsWithOverflow.java](src/main/java/it/unive/lisa/tutorial/IntervalsWithOverflow.java)
+
+[LinearInequalitiesAmongThreeVariables.java](src/main/java/it/unive/lisa/tutorial/LinearInequalitiesAmongThreeVariables.java)
+    
+[IntervalsWithOverflowTest.java](src/test/java/it/unive/lisa/tutorial/IntervalsWithOverflowTest.java)
+    
+[LinearInequalitiesAmongThreeVariablesTest.java](src/test/java/it/unive/lisa/tutorial/LinearInequalitiesAmongThreeVariablesTest.java)
+    
+[CartesianProductIntervalLinearInequalitiesTest.java](src/test/java/it/unive/lisa/tutorial/CartesianProductIntervalLinearInequalitiesTest.java)
+
+Tests:
+
+[intervalsoverflow.imp](inputs/intervalsoverflow.imp)
+
+[linearinequalities.imp](inputs/linearinequalities.imp)
+
+[cartesianproductintervalslinearinequalities.imp](inputs/cartesianproductintervalslinearinequalities.imp)
+
 ---
 
 ## 1. Domaine non relationnel : intervalles avec overflow
@@ -287,3 +309,45 @@ La perte de précision ici est normale.
 Comme la borne supérieure continue d’augmenter dans la boucle, le widening la promeut directement à `Integer.MAX_VALUE` afin de garantir la convergence.
 
 Ce comportement est cohérent avec le widening classique sur les intervalles.
+
+## 2. Domaine relationnel : inéquation linéaire parmi 3 variables
+
+On veut décrire les relations tel que x > y + z avec x, y et z des variables du logiciel analysé.
+
+On ne se restreint qu'à ce type d'inégalité, on ne regardera pas les opérateurs
+tel que ge, le, lt, eq, neq...
+Cela aurait pu être aussi implémenté mais est redondant avec le cas gt.
+
+Afin de définir ce domaine, il fallait déjà définir quel type de treillis on avait affaire.
+Ici, comme on veut définir un treillis qui décrit des identifiants et leur relations avec d'autres,
+il est évident de dire que c'est un treillis à ordre inversé, en particulier, bottom veut dire qu'on
+est plus précis sur les relations et top veut dire qu'on ne connaît rien.
+
+Maintenant que cela est clarifié, on utilise le même principe que pour le not equal vu en cours.
+On dit qu'une variable est lié à un ensemble de pair de variable. En particulier, les éléments
+dans cet ensemble de pair sont les pairs de variables (y, z) auquels la variable lié à l'ensemble
+sont lié par la relation x est plus grand l'assocation de y et z.
+
+On ne décrira pas dans le détail comme le paragraphe 1 pour maintenir ce readme uniquement informatif
+de l'implémentation et structure utilisée.
+
+Il faut surtout retenir qu'il n'y a pas de maintenance de widening, uniquement la maintenance
+de l'environnement dans lequel les liaisons évoluent. Si une réaffectation d'une des paires
+de variables est faite, il faut oublier la paire car l'information n'est plus d'actualité.
+
+Pour l'opération assume, on fait évoluer l'environnement en pour ajouter la liaison
+entre une variable et la paire de variable associée.
+
+Pour trouver le plus petit majorant, sans oublié qu'on est en treillis inversé, on dit que plus on se
+rapproche de top, moins on en sait donc top est vide, et plus on est vers bottom, plus on détaille
+les laisons entre les variables et leur paires. Donc pour agrandir l'environnement,
+il faut merge les deux environnement ensemble.
+
+## 3. Le produit cartésien
+
+Pour le produit cartésien, il suffit de regarder dans le package de test,
+[CartesianProductIntervalLinearInequalitiesTest.java](src/test/java/it/unive/lisa/tutorial/CartesianProductIntervalLinearInequalitiesTest.java)
+
+On utilise ce qu'on a vu en cours pour associer les deux domaines ensembles. Il fallait
+faire attention à ne pas utiliser ValueEnvironment pour le LinearInequalities car c'est un domaine
+relationnel est ValueEnvironment ne prend que des domaines relationnels.
