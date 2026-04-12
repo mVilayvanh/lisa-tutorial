@@ -1,0 +1,23 @@
+class linearinequalities {
+
+	basic() {
+		def i = 1;
+		def y = 1;
+        def z = 1;
+        if (i > y + z) {
+            def w = 1;
+        } else {
+            def w = 0;
+        }
+	}
+
+     loop() {
+         def c = 1;
+         def b = 20;
+         def a = 9;
+         while (b > a + c)
+             a = a + c;
+         return b;
+     }
+
+}
